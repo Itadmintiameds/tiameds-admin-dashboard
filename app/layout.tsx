@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "tiameds-admin",
   description: "Admin dashboard for tiameds",
+  icons: {
+    icon: "/assets/images/tiameds.logo.png",
+  },
 };
 
 export default function RootLayout({
