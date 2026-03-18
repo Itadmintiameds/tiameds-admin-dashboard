@@ -339,7 +339,7 @@ export default function AdminDashboard() {
 
   return (
     <>
-      <Header admin onLogout={() => router.push("/page")} />
+      <Header admin onLogout={() => router.push("/")} />
 
       {/* Toast */}
       {toast && (
@@ -398,7 +398,7 @@ export default function AdminDashboard() {
                     placeholder="Search by Request ID, Name, or Email..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-11 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4B0082] focus:border-transparent transition-all bg-gray-50 focus:bg-white"
+                    className="w-full pl-11 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4B0082] focus:border-transparent transition-all bg-gray-50 focus:bg-white"
                   />
                   {searchTerm && (
                     <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
