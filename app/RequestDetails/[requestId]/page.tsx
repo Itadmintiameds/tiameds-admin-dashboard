@@ -5,9 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 
 // ─── Constants ────────────────────────────────────────────────
-const BASE_URL = "https://api-test-aggreator.tiameds.ai/api/v1";
-const API_KEY  = "YOUR_API_KEY";
-
+const BASE_URL      = "https://api-test-aggreator.tiameds.ai/api/v1";
+const API_KEY       = "YOUR_API_KEY";
 const LOCAL_GST_DOC = "/assets/docs/gst-certificate.png";
 const LOCAL_CHEQUE  = "/assets/docs/cheque.jpg";
 const LOCAL_LICENSE = "/assets/docs/license-file.png";
@@ -21,14 +20,14 @@ const STATUS_MAP: Record<string, string> = {
 };
 
 const DECISION_CONFIG = {
-  Accept:     { label: "Closed",             badgeClass: "bg-green-50 text-green-700 ring-green-200",   dotClass: "bg-green-500" },
-  Reject:     { label: "Rejected",           badgeClass: "bg-red-50 text-red-700 ring-red-200",         dotClass: "bg-red-500"   },
-  Correction: { label: "Corrections Needed", badgeClass: "bg-amber-50 text-amber-700 ring-amber-200",   dotClass: "bg-amber-500" },
+  Accept:     { label: "Closed",             badgeClass: "bg-green-50 text-green-700 ring-green-200", dotClass: "bg-green-500" },
+  Reject:     { label: "Rejected",           badgeClass: "bg-red-50 text-red-700 ring-red-200",       dotClass: "bg-red-500"   },
+  Correction: { label: "Corrections Needed", badgeClass: "bg-amber-50 text-amber-700 ring-amber-200", dotClass: "bg-amber-500" },
 } as const;
 
 // ─── Types ────────────────────────────────────────────────────
-type Decision    = "Accept" | "Reject" | "Correction" | null;
-type EntityType  = "seller" | "buyer" | "lab";
+type Decision     = "Accept" | "Reject" | "Correction" | null;
+type ModalPhase   = "loading" | "success" | "error";
 type FileStateMap = Record<string, { viewed: boolean; verified: boolean | null }>;
 
 interface Doc {
@@ -55,6 +54,7 @@ interface SellerDetail {
   bankDetails: {
     bankName: string; branch: string; ifscCode: string;
     accountNumber: string; accountHolderName: string; bankDocumentFileUrl: string;
+    bankDocumentVerified: boolean;
   };
   documents: Doc[];
   reviewHistories?: {
@@ -62,107 +62,6 @@ interface SellerDetail {
     reviewedBy: string; status: string;
   }[];
 }
-
-// ─── Fake data factory for buyers & labs ─────────────────────
-// Uses placeholder images that always load — no broken paths
-const makeFakeDetail = (id: number, requestId: string, entityType: EntityType): SellerDetail => {
-  const isBuyer = entityType === "buyer";
-  const prefix  = isBuyer ? "BUY" : "LAB";
-  const nameMap: Record<number, string> = {
-    11: "ABC Buyers", 12: "XYZ Buyers", 13: "JKL Buyers", 14: "MNO Buyers", 15: "PQR Buyers",
-    21: "ABC Labs",   22: "XYZ Labs",   23: "JKL Labs",   24: "MNO Labs",   25: "PQR Labs",
-  };
-  const statusMap: Record<number, string> = {
-    11: "PENDING",     12: "IN_PROGRESS", 13: "APPROVED",  14: "REJECTED",  15: "CORRECTION",
-    21: "APPROVED",    22: "IN_PROGRESS", 23: "PENDING",   24: "REJECTED",  25: "CORRECTION",
-  };
-  const name   = nameMap[id] ?? `${prefix} Entity ${id}`;
-  const status = statusMap[id] ?? "PENDING";
-
-  return {
-    tempSellerId:       id,
-    tempSellerRequestId: requestId,
-    sellerName:         name,
-    email:              `contact@${name.toLowerCase().replace(/\s/g, "")}.com`,
-    emailVerified:      true,
-    phone:              `98765${String(id).padStart(5, "0")}`,
-    phoneVerified:      true,
-    website:            `https://www.${name.toLowerCase().replace(/\s/g, "")}.com`,
-    gstNumber:          `22AAAAA${String(id).padStart(4, "0")}A1Z5`,
-    // ── Local public assets ──
-    gstFileUrl:         LOCAL_GST_DOC,
-    gstVerified:        false,
-    status,
-    termsAccepted:      true,
-    companyType:        { companyTypeName: isBuyer ? "Private Limited" : "Research Institute" },
-    sellerType:         { sellerTypeName:  isBuyer ? "Buyer"           : "Lab"                },
-    productTypes:       [{ productTypeId: 1, productTypeName: isBuyer ? "General Goods" : "Diagnostics" }],
-    address: {
-      buildingNo: `${id * 10}`,
-      street:     "MG Road",
-      city:       "Chennai",
-      landmark:   "Near Central Mall",
-      pinCode:    "600001",
-      state:      { stateName:    "Tamil Nadu"  },
-      district:   { districtName: "Chennai"     },
-      taluka:     { talukaName:   "Egmore"      },
-    },
-    coordinator: {
-      name:          `Coordinator ${name}`,
-      designation:   isBuyer ? "Purchase Manager" : "Lab Director",
-      email:         `coord@${name.toLowerCase().replace(/\s/g, "")}.com`,
-      emailVerified: true,
-      mobile:        `91234${String(id).padStart(5, "0")}`,
-      phoneVerified: true,
-    },
-    bankDetails: {
-      bankName:            "State Bank of India",
-      branch:              "Anna Salai Branch",
-      ifscCode:            `SBIN000${id}`,
-      accountNumber:       `${id}000123456789`,
-      accountHolderName:   name,
-      // ── Local public asset ──
-      bankDocumentFileUrl: LOCAL_CHEQUE,
-    },
-    documents: [
-      {
-        DocumentsId:          id * 100,
-        documentNumber:       `${prefix}-DOC-${id}-001`,
-        // ── Local public asset ──
-        documentFileUrl:      LOCAL_LICENSE,
-        documentVerified:     false,
-        licenseIssueDate:     "2023-04-01T00:00:00.000Z",
-        licenseExpiryDate:    "2026-03-31T00:00:00.000Z",
-        licenseIssuingAuthority: isBuyer ? "State Drug Authority" : "NABL",
-        licenseStatus:        "Active",
-        productTypes:         { productTypeName: isBuyer ? "General Goods" : "Diagnostics" },
-      },
-    ],
-    reviewHistories: [
-      {
-        id:         1,
-        comments:   "",
-        reviewedAt: "2026-01-15T10:30:00.000Z",
-        reviewedBy: "Admin User",
-        status:     "PENDING",
-      },
-    ],
-  };
-};
-
-// ─── Demo list lookup so we can resolve id → requestId ────────
-const DEMO_MAP: Record<number, { requestId: string; entityType: EntityType }> = {
-  11: { requestId: "BUY-2001", entityType: "buyer" },
-  12: { requestId: "BUY-2002", entityType: "buyer" },
-  13: { requestId: "BUY-2003", entityType: "buyer" },
-  14: { requestId: "BUY-2004", entityType: "buyer" },
-  15: { requestId: "BUY-2005", entityType: "buyer" },
-  21: { requestId: "LAB-3001", entityType: "lab"   },
-  22: { requestId: "LAB-3002", entityType: "lab"   },
-  23: { requestId: "LAB-3003", entityType: "lab"   },
-  24: { requestId: "LAB-3004", entityType: "lab"   },
-  25: { requestId: "LAB-3005", entityType: "lab"   },
-};
 
 // ─── Helpers ──────────────────────────────────────────────────
 const normalizeStatus = (raw: string) => STATUS_MAP[raw?.toUpperCase()] ?? raw;
@@ -185,71 +84,221 @@ const decisionFromStatus = (status: string): Decision => {
 const buildFileStates = (detail: SellerDetail, decision: Decision): FileStateMap => {
   const accepted = decision === "Accept";
   const locked   = accepted || decision === "Reject";
+  const resolveVerified = (apiValue: boolean | null | undefined, forceTrue: boolean): boolean | null => {
+    if (forceTrue) return true;
+    if (apiValue === true)  return true;
+    if (apiValue === false) return false;
+    return null;
+  };
+  const resolveViewed = (verified: boolean | null): boolean => locked || verified !== null;
+  const gstV  = resolveVerified(detail.gstVerified, accepted);
+  const bankV = resolveVerified(detail.bankDetails?.bankDocumentVerified, accepted);
   const init: FileStateMap = {
-    gstFile:    { viewed: locked, verified: accepted ? true : (detail.gstVerified === true ? true : null) },
-    chequeFile: { viewed: locked, verified: accepted ? true : null },
+    gstFile:    { viewed: resolveViewed(gstV),  verified: gstV  },
+    chequeFile: { viewed: resolveViewed(bankV), verified: bankV },
   };
   detail.documents?.forEach(doc => {
-    init[`doc_${doc.DocumentsId}`] = {
-      viewed:   locked,
-      verified: accepted ? true : (doc.documentVerified === true ? true : null),
-    };
+    const v = resolveVerified(doc.documentVerified, accepted);
+    init[`doc_${doc.DocumentsId}`] = { viewed: resolveViewed(v), verified: v };
   });
   return init;
 };
 
-// ─── Batched verification API calls ──────────────────────────
-const submitAllVerifications = async (
-  sellerId: number,
-  fileStates: FileStateMap,
-  docList: Doc[],
-  entityType: EntityType
-): Promise<string[]> => {
-  const errors: string[] = [];
+// ─── Decision Action Modal ─────────────────────────────────────
+// Shows immediately on button click with a loading spinner,
+// then transitions to success/error animation.
+function DecisionActionModal({
+  action,
+  phase,
+  errorMessage,
+  onDone,
+}: {
+  action: Decision;
+  phase: ModalPhase;
+  errorMessage?: string;
+  onDone: () => void;
+}) {
+  const [iconIn, setIconIn] = useState(false);
 
-  // For buyers/labs we skip verification API calls (no endpoints yet)
-  if (entityType !== "seller") return errors;
-
-  const call = async (url: string, method: "PATCH" | "POST", body: Record<string, unknown>) => {
-    const res = await fetch(url, {
-      method,
-      headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      throw new Error(json.message ?? `${method} ${url} failed (${res.status})`);
+  useEffect(() => {
+    if (phase === "success" || phase === "error") {
+      // Small delay so the transition from spinner to icon feels smooth
+      const t = setTimeout(() => setIconIn(true), 120);
+      return () => clearTimeout(t);
     }
-  };
+    setIconIn(false);
+  }, [phase]);
 
-  const gst = fileStates["gstFile"];
-  if (gst?.verified !== null && gst?.verified !== undefined) {
-    try {
-      await call(`${BASE_URL}/temp-sellers/${sellerId}/verify/gst`, "PATCH", { gstVerified: String(gst.verified) });
-    } catch (e) { errors.push(`GST: ${(e as Error).message}`); }
-  }
+  if (!action) return null;
 
-  const bank = fileStates["chequeFile"];
-  if (bank?.verified !== null && bank?.verified !== undefined) {
-    try {
-      await call(`${BASE_URL}/temp-sellers/${sellerId}/verify/bank`, "PATCH", { bankDocumentVerified: String(bank.verified) });
-    } catch (e) { errors.push(`Bank: ${(e as Error).message}`); }
-  }
+  // Config per decision type
+  const successCfg = {
+    Accept: {
+      bg: "from-green-50 to-emerald-50",
+      ring: "ring-green-200",
+      iconBg: "bg-green-100",
+      pulse: "bg-green-400",
+      title: "Request Accepted!",
+      subtitle: "Status set to Closed",
+      desc: "The seller has been approved successfully.",
+      badge: "bg-green-100 text-green-700",
+      icon: (done: boolean) => (
+        <svg viewBox="0 0 52 52" className="w-11 h-11">
+          <circle cx="26" cy="26" r="24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            className="text-green-300"
+            style={{ strokeDasharray: 150, strokeDashoffset: done ? 0 : 150, transition: "stroke-dashoffset 0.55s ease" }} />
+          <path fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"
+            d="M14 27l8 8 16-16" className="text-green-600"
+            style={{ strokeDasharray: 38, strokeDashoffset: done ? 0 : 38, transition: "stroke-dashoffset 0.4s ease 0.5s" }} />
+        </svg>
+      ),
+    },
+    Reject: {
+      bg: "from-red-50 to-rose-50",
+      ring: "ring-red-200",
+      iconBg: "bg-red-100",
+      pulse: "bg-red-400",
+      title: "Request Rejected",
+      subtitle: "Status set to Rejected",
+      desc: "The seller request has been declined.",
+      badge: "bg-red-100 text-red-700",
+      icon: (done: boolean) => (
+        <svg viewBox="0 0 52 52" className="w-11 h-11">
+          <circle cx="26" cy="26" r="24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            className="text-red-300"
+            style={{ strokeDasharray: 150, strokeDashoffset: done ? 0 : 150, transition: "stroke-dashoffset 0.55s ease" }} />
+          <path fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round"
+            d="M17 17l18 18M35 17L17 35" className="text-red-600"
+            style={{ strokeDasharray: 33, strokeDashoffset: done ? 0 : 33, transition: "stroke-dashoffset 0.4s ease 0.5s" }} />
+        </svg>
+      ),
+    },
+    Correction: {
+      bg: "from-amber-50 to-yellow-50",
+      ring: "ring-amber-200",
+      iconBg: "bg-amber-100",
+      pulse: "bg-amber-400",
+      title: "Correction Requested",
+      subtitle: "Seller has been notified",
+      desc: "The seller will be asked to submit corrections.",
+      badge: "bg-amber-100 text-amber-700",
+      icon: (done: boolean) => (
+        <svg viewBox="0 0 52 52" className="w-11 h-11">
+          <circle cx="26" cy="26" r="24" fill="none" stroke="currentColor" strokeWidth="2.5"
+            className="text-amber-300"
+            style={{ strokeDasharray: 150, strokeDashoffset: done ? 0 : 150, transition: "stroke-dashoffset 0.55s ease" }} />
+          <path fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round"
+            d="M26 15v13M26 34v2.5" className="text-amber-600"
+            style={{ strokeDasharray: 22, strokeDashoffset: done ? 0 : 22, transition: "stroke-dashoffset 0.4s ease 0.5s" }} />
+        </svg>
+      ),
+    },
+  }[action];
 
-  for (const doc of docList ?? []) {
-    const key   = `doc_${doc.DocumentsId}`;
-    const state = fileStates[key];
-    if (state?.verified !== null && state?.verified !== undefined) {
-      try {
-        await call(`${BASE_URL}/temp-sellers/${sellerId}/verify/document`, "POST", {
-          documentId: doc.DocumentsId, documentVerified: String(state.verified),
-        });
-      } catch (e) { errors.push(`License (${doc.productTypes?.productTypeName ?? doc.DocumentsId}): ${(e as Error).message}`); }
-    }
-  }
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.52)", backdropFilter: "blur(6px)" }}
+    >
+      <div
+        className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 flex flex-col items-center gap-5 text-center ring-1
+          ${phase === "error" ? "ring-red-200 bg-gradient-to-b from-red-50 to-rose-50" : `${successCfg.ring} bg-gradient-to-b ${successCfg.bg}`}`}
+        style={{
+          transform: "scale(1) translateY(0)",
+          animation: "modalIn 0.32s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}
+      >
+        {/* ── Loading phase: spinner ── */}
+        {phase === "loading" && (
+          <>
+            <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>
+              <svg className="w-8 h-8 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-base font-bold text-gray-700">Submitting decision…</p>
+              <p className="text-sm text-gray-400 mt-1">Please wait</p>
+            </div>
+          </>
+        )}
 
-  return errors;
-};
+        {/* ── Success phase: animated icon + text ── */}
+        {phase === "success" && (
+          <>
+            <div className="relative flex items-center justify-center">
+              <span
+                className={`absolute w-20 h-20 rounded-full ${successCfg.pulse} opacity-0`}
+                style={{ animation: "pulseOut 0.85s ease-out forwards" }}
+              />
+              <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>
+                {successCfg.icon(iconIn)}
+              </div>
+            </div>
+            <div
+              style={{ opacity: iconIn ? 1 : 0, transform: iconIn ? "translateY(0)" : "translateY(6px)", transition: "all 0.3s ease 0.3s" }}
+            >
+              <p className="text-xl font-bold text-gray-900">{successCfg.title}</p>
+              <span className={`mt-2 inline-block text-xs font-semibold px-3 py-1 rounded-full ${successCfg.badge}`}>
+                {successCfg.subtitle}
+              </span>
+            </div>
+            <p
+              className="text-sm text-gray-500"
+              style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.5s" }}
+            >
+              {successCfg.desc}
+            </p>
+            <div className="flex items-center gap-2 text-xs text-gray-400" style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.65s" }}>
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+              Redirecting you back…
+            </div>
+            <button onClick={onDone} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2 transition-colors">
+              Go back now
+            </button>
+          </>
+        )}
+
+        {/* ── Error phase ── */}
+        {phase === "error" && (
+          <>
+            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-gray-900">Submission Failed</p>
+              {errorMessage && <p className="text-sm text-red-500 mt-1">{errorMessage}</p>}
+            </div>
+            <button
+              onClick={onDone}
+              className="px-5 py-2.5 bg-gray-800 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition-colors"
+            >
+              Close &amp; Try Again
+            </button>
+          </>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes modalIn {
+          from { transform: scale(0.82) translateY(20px); opacity: 0; }
+          to   { transform: scale(1)    translateY(0);    opacity: 1; }
+        }
+        @keyframes pulseOut {
+          0%   { transform: scale(0.8); opacity: 0.3; }
+          70%  { transform: scale(1.9); opacity: 0;   }
+          100% { transform: scale(1.9); opacity: 0;   }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 // ─── Sub-components ───────────────────────────────────────────
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -270,9 +319,7 @@ function Item({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-function FileItem({
-  label, fileUrl, onView, isViewed, isVerified, isLocked,
-}: {
+function FileItem({ label, fileUrl, onView, isViewed, isVerified, isLocked }: {
   label: string; fileUrl?: string; onView: () => void;
   isViewed: boolean; isVerified: boolean | null; isLocked: boolean;
 }) {
@@ -293,10 +340,10 @@ function FileItem({
           </svg>
           {isViewed ? "Re-view" : "View file"}
         </button>
-        {isVerified === true  && <span className="text-green-600 text-xs font-semibold">✔ Verified</span>}
-        {isVerified === false && <span className="text-red-500 text-xs font-semibold">✗ Rejected</span>}
-        {isVerified === null  && isViewed && !isLocked && <span className="text-amber-500 text-xs font-semibold">Pending decision</span>}
-        {isLocked && (
+        {/* ── Only show ✔ Verified — never show ✗ Rejected ── */}
+        {isVerified === true && <span className="text-green-600 text-xs font-semibold">✔ Verified</span>}
+        {isVerified === null && isViewed && !isLocked && <span className="text-amber-500 text-xs font-semibold">Pending decision</span>}
+        {isLocked && isVerified === true && (
           <span className="inline-flex items-center gap-1 text-gray-400 text-xs italic">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
@@ -351,43 +398,35 @@ function Toast({ message, type }: { message: string; type: "success" | "error" }
   );
 }
 
-function ActionButton({ action, label, icon, submittingAction, disabled, onClick }: {
+// Action buttons — no loading spinner, click triggers modal immediately
+function ActionButton({ action, label, icon, disabled, onClick }: {
   action: string; label: string; icon: React.ReactNode;
-  submittingAction: Decision; disabled: boolean; onClick: () => void;
+  disabled: boolean; onClick: () => void;
 }) {
-  const isSubmitting = submittingAction === action;
   const colorClass =
     action === "Accept"     ? "from-green-600 to-green-700 hover:from-green-700 hover:to-green-800" :
     action === "Reject"     ? "from-red-600 to-red-700 hover:from-red-700 hover:to-red-800" :
                               "from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700";
   return (
-    <button onClick={onClick} disabled={disabled || isSubmitting}
+    <button
+      onClick={onClick}
+      disabled={disabled}
       className={`px-6 py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-200
         ${disabled
           ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-          : `bg-gradient-to-r ${colorClass} text-white shadow-md hover:shadow-lg hover:-translate-y-0.5`}`}>
-      {isSubmitting
-        ? <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-          </svg>
-        : icon}
-      {isSubmitting ? "Submitting…" : label}
+          : `bg-gradient-to-r ${colorClass} text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-95`
+        }`}
+    >
+      {icon}
+      {label}
     </button>
   );
 }
 
-// ─── Entity type label helper ─────────────────────────────────
-const entityLabel = (t: EntityType) => t === "seller" ? "Seller" : t === "buyer" ? "Buyer" : "Lab";
-
-// ─── Main Component ───────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────
 export default function RequestDetails({ requestId }: { requestId: string }) {
-  const router      = useRouter();
-  const params      = useSearchParams();
-  const sellerId    = Number(params.get("sellerId") ?? 0);
-  // ── FIX: read entityType from URL, default to "seller" ──
-  const entityType  = (params.get("entityType") ?? "seller") as EntityType;
-  const isFakeEntity = entityType === "buyer" || entityType === "lab";
+  const router   = useRouter();
+  const sellerId = Number(useSearchParams().get("sellerId") ?? 0);
 
   const [data,              setData]              = useState<SellerDetail | null>(null);
   const [loading,           setLoading]           = useState(true);
@@ -395,11 +434,13 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   const [lockedFileStates,  setLockedFileStates]  = useState<FileStateMap | null>(null);
   const [submittedDecision, setSubmittedDecision] = useState<Decision>(null);
   const [modalOpen,         setModalOpen]         = useState(false);
-  const [currentFile,       setCurrentFile]       = useState<{ url: string; label: string; fileKey: string; docId?: number } | null>(null);
+  const [currentFile,       setCurrentFile]       = useState<{ url: string; label: string; fileKey: string } | null>(null);
   const [adminComment,      setAdminComment]      = useState("");
   const [showCommentError,  setShowCommentError]  = useState(false);
-  const [submittingAction,  setSubmittingAction]  = useState<Decision>(null);
   const [toast,             setToast]             = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  // ── Decision action modal state
+  const [actionModal,      setActionModal]      = useState<{ action: Decision; phase: ModalPhase; errorMessage?: string } | null>(null);
 
   const isLocked         = submittedDecision === "Accept" || submittedDecision === "Reject";
   const isCorrectionMode = submittedDecision === "Correction";
@@ -412,26 +453,17 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
 
   const loadDetail = (detail: SellerDetail, decision: Decision) => {
     const sessionKey = `fileStates_${detail.tempSellerId}`;
-    const locked     = decision === "Accept" || decision === "Reject";
-    let states       = buildFileStates(detail, decision);
-
+    const locked = decision === "Accept" || decision === "Reject";
+    let states = buildFileStates(detail, decision);
     if (locked) {
       try {
         const persisted = sessionStorage.getItem(sessionKey);
         if (persisted) {
           const restored: FileStateMap = JSON.parse(persisted);
-          states = Object.fromEntries(
-            Object.entries(restored).map(([k, v]) => [k, { ...v, viewed: true }])
-          );
+          states = Object.fromEntries(Object.entries(restored).map(([k, v]) => [k, { ...v, viewed: true }]));
         }
-      } catch { /* ignore */ }
+      } catch {}
     }
-
-    const histories = detail.reviewHistories;
-    if (histories && histories.length > 0) {
-      setAdminComment(histories[histories.length - 1].comments ?? "");
-    }
-
     setData(detail);
     setFileStates(states);
     if (locked) setLockedFileStates(states);
@@ -442,39 +474,25 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     if (!sellerId) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
-
-    // ── FIX: buyers & labs → skip API, use fake data immediately ──
-    if (isFakeEntity) {
-      const demo = DEMO_MAP[sellerId];
-      const rid  = demo?.requestId ?? requestId;
-      const fake = makeFakeDetail(sellerId, rid, entityType);
-      if (!cancelled) loadDetail(fake, decisionFromStatus(fake.status));
-      setLoading(false);
-      return;
-    }
-
-    // Sellers → real API (unchanged)
     fetch(`${BASE_URL}/temp-sellers/${sellerId}`, { headers: { "X-API-Key": API_KEY } })
       .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
       .then(json => {
-        if (!cancelled)
-          loadDetail(
-            (json.data ?? json) as SellerDetail,
-            decisionFromStatus((json.data ?? json).status ?? "")
-          );
+        if (!cancelled) loadDetail(
+          (json.data ?? json) as SellerDetail,
+          decisionFromStatus((json.data ?? json).status ?? "")
+        );
       })
       .catch(() => { if (!cancelled) showToast("Failed to load seller details. Please try again.", "error"); })
       .finally(() => { if (!cancelled) setLoading(false); });
-
     return () => { cancelled = true; };
-  }, [sellerId, entityType]);
+  }, [sellerId]);
 
-  // ── Derived state ─────────────────────────────────────────
+  // ── Memos ─────────────────────────────────────────────────
   const documentsVerified = useMemo(() => {
     const keys = Object.keys(activeStates).filter(k => k === "gstFile" || k.startsWith("doc_"));
     if (!keys.length) return { status: "No Documents", error: true };
-    if (keys.every(k => activeStates[k]?.verified === true))  return { status: "Complete",         error: false };
-    if (keys.some(k  => activeStates[k]?.verified === false)) return { status: "Rejected",          error: true  };
+    if (keys.every(k => activeStates[k]?.verified === true))  return { status: "Complete", error: false };
+    if (keys.some(k  => activeStates[k]?.verified === false)) return { status: "Rejected",  error: true  };
     return { status: isLocked ? "Not Verified" : "Pending Verification", error: true };
   }, [activeStates, isLocked]);
 
@@ -485,78 +503,90 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   }, [activeStates, isLocked]);
 
   const allViewed = useMemo(() =>
-    Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.viewed),
+    Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.viewed === true),
     [activeStates]
   );
-
   const canAccept = useMemo(() =>
     allViewed && Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.verified === true),
     [activeStates, allViewed]
   );
-
   const hasAnyRejected = useMemo(() =>
     allViewed && Object.values(activeStates).some(v => v.verified === false),
     [activeStates, allViewed]
   );
 
-  // ── Handlers ──────────────────────────────────────────────
-  const handleViewFile = (url: string, label: string, fileKey: string, docId?: number) => {
-    setCurrentFile({ url, label, fileKey, docId });
+  // ── Handlers ─────────────────────────────────────────────
+  const handleViewFile = (url: string, label: string, fileKey: string) => {
+    setCurrentFile({ url, label, fileKey });
     setModalOpen(true);
-    setFileStates(prev => ({
-      ...prev,
-      [fileKey]: { ...(prev[fileKey] ?? { verified: null }), viewed: true },
-    }));
+    const update = (prev: FileStateMap) => ({ ...prev, [fileKey]: { ...(prev[fileKey] ?? { verified: null }), viewed: true } });
+    setFileStates(update);
+    if (isLocked) setLockedFileStates(prev => prev ? update(prev) : prev);
   };
 
-  const handleVerifyInModal = (verified: boolean) => {
+  const handleVerifyInModal = async (verified: boolean) => {
     if (!currentFile || isLocked) return;
-    const { fileKey } = currentFile;
-    setFileStates(prev => ({ ...prev, [fileKey]: { ...prev[fileKey], verified } }));
+    setFileStates(prev => ({ ...prev, [currentFile.fileKey]: { ...prev[currentFile.fileKey], verified } }));
     setModalOpen(false);
-    showToast(
-      verified
-        ? "Marked as verified — will be saved on final submission."
-        : "Marked as rejected — will be saved on final submission.",
-      verified ? "success" : "error"
-    );
+    const { fileKey } = currentFile;
+    try {
+      let res: Response;
+      if (fileKey === "gstFile") {
+        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/gst`, {
+          method: "PATCH",
+          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ gstVerified: String(verified) }),
+        });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message ?? j.data?.message ?? `${res.status}`); }
+        // Only show toast for verified, silently ignore rejected
+        if (verified) showToast("GST verified ✔", "success");
+      } else if (fileKey === "chequeFile") {
+        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/bank`, {
+          method: "PATCH",
+          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ bankDocumentVerified: String(verified) }),
+        });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message ?? j.data?.message ?? `${res.status}`); }
+        if (verified) showToast("Bank doc verified ✔", "success");
+      } else if (fileKey.startsWith("doc_")) {
+        const docId = Number(fileKey.replace("doc_", ""));
+        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/document`, {
+          method: "PATCH",
+          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ documentId: docId, documentVerified: String(verified) }),
+        });
+        if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message ?? j.data?.message ?? `${res.status}`); }
+        if (verified) showToast("Document verified ✔", "success");
+      }
+    } catch (e) {
+      console.error("Instant PATCH failed:", e);
+      // Only surface errors when verifying — silent on reject
+      if (verified) showToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
   };
 
   const handleAction = async (action: "Accept" | "Reject" | "Correction") => {
-    if (!adminComment.trim())                   { setShowCommentError(true); return; }
-    if (!allViewed)                             { showToast("View all documents before taking action.", "error"); return; }
-    if (action === "Accept" && !canAccept)      { showToast("Verify all documents before accepting.", "error"); return; }
-    if (action === "Reject" && !hasAnyRejected) { showToast("Reject at least one document before rejecting the request.", "error"); return; }
+    if (!adminComment.trim())                    { setShowCommentError(true); return; }
+    if (action === "Accept" && !canAccept)       { showToast("Verify all documents before accepting.", "error"); return; }
+    if (action === "Reject" && !hasAnyRejected)  { showToast("Reject at least one document before rejecting the request.", "error"); return; }
+    if (!allViewed)                              { showToast("View all documents before taking action.", "error"); return; }
 
     setShowCommentError(false);
-    setSubmittingAction(action);
+
+    // ── Immediately open the modal in loading phase ──
+    setActionModal({ action, phase: "loading" });
 
     try {
-      // Step 1: verification API (skipped automatically for buyers/labs)
-      const verifyErrors = await submitAllVerifications(sellerId, fileStates, data?.documents ?? [], entityType);
-      if (verifyErrors.length > 0) {
-        showToast(`Verification save failed:\n${verifyErrors.join("; ")}`, "error");
-        setSubmittingAction(null);
-        return;
-      }
+      const res  = await fetch(`${BASE_URL}/admin/sellers/review`, {
+        method: "POST",
+        headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ id: sellerId, status: action, comments: adminComment }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? `${res.status}`);
 
-      // Step 2: admin review decision
-      // For buyers/labs (fake data), we simulate success without hitting the API
-      if (!isFakeEntity) {
-        const res  = await fetch(`${BASE_URL}/admin/sellers/review`, {
-          method: "POST",
-          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ id: sellerId, status: action, comments: adminComment }),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.message ?? `${res.status}`);
-      }
-
-      // Step 3: lock UI
       if (action === "Accept" || action === "Reject") {
-        const frozen = Object.fromEntries(
-          Object.entries(fileStates).map(([k, v]) => [k, { verified: v.verified, viewed: true }])
-        );
+        const frozen = Object.fromEntries(Object.entries(fileStates).map(([k, v]) => [k, { verified: v.verified, viewed: true }]));
         if (sellerId) sessionStorage.setItem(`fileStates_${sellerId}`, JSON.stringify(frozen));
         setLockedFileStates(frozen);
         setFileStates(frozen);
@@ -566,18 +596,13 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       }
 
       setSubmittedDecision(action);
-      showToast(
-        action === "Accept"     ? `Request accepted — status set to Closed!` :
-        action === "Reject"     ? `Request rejected — status set to Rejected!` :
-                                  `Correction requested — ${entityLabel(entityType)} notified!`,
-        "success"
-      );
-      setTimeout(() => router.back(), 1800);
+      // ── Transition modal to success ──
+      setActionModal({ action, phase: "success" });
+      setTimeout(() => { setActionModal(null); router.back(); }, 3000);
 
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Action failed.", "error");
-    } finally {
-      setSubmittingAction(null);
+      // ── Transition modal to error ──
+      setActionModal({ action, phase: "error", errorMessage: err instanceof Error ? err.message : "Action failed." });
     }
   };
 
@@ -593,12 +618,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     }
     if (!data) return null;
     const s = data.status?.toLowerCase();
-    const badgeClass = s === "open"            ? "bg-yellow-50 text-yellow-700 ring-yellow-200"
-                     : s?.includes("progress") ? "bg-blue-50 text-blue-700 ring-blue-200"
-                                               : "bg-green-50 text-green-700 ring-green-200";
-    const dotClass   = s === "open"            ? "bg-yellow-500"
-                     : s?.includes("progress") ? "bg-blue-500"
-                                               : "bg-green-500";
+    const badgeClass = s === "open" ? "bg-yellow-50 text-yellow-700 ring-yellow-200" : s?.includes("progress") ? "bg-blue-50 text-blue-700 ring-blue-200" : "bg-green-50 text-green-700 ring-green-200";
+    const dotClass   = s === "open" ? "bg-yellow-500" : s?.includes("progress") ? "bg-blue-500" : "bg-green-500";
     return (
       <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ring-1 ${badgeClass}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
@@ -607,124 +628,102 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     );
   };
 
-  const LOCK_ICON = (
-    <path fillRule="evenodd"
-      d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z"
-      clipRule="evenodd" />
-  );
+  const LOCK_ICON = <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />;
 
-  // ─────────────────────────────────────────────────────────
+  const historyStatusStyle = (s: string) => {
+    const u = s?.toUpperCase();
+    if (u === "APPROVED" || u === "ACCEPT")  return { badge: "bg-green-50 text-green-700 ring-green-200",  dot: "bg-green-500", line: "border-green-200" };
+    if (u === "REJECTED"  || u === "REJECT") return { badge: "bg-red-50 text-red-700 ring-red-200",        dot: "bg-red-500",   line: "border-red-200"   };
+    if (u?.includes("CORRECTION"))           return { badge: "bg-amber-50 text-amber-700 ring-amber-200", dot: "bg-amber-500", line: "border-amber-200" };
+    return                                          { badge: "bg-blue-50 text-blue-700 ring-blue-200",    dot: "bg-blue-400",  line: "border-blue-200"  };
+  };
+
+  // ── File modal verdict (shown in header area) — only show verified
+  const fileModalVerdict = () => {
+    if (!currentFile) return null;
+    const v = fileStates[currentFile.fileKey]?.verified;
+    if (isLocked && submittedDecision === "Accept")
+      return <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs font-semibold whitespace-nowrap"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Closed</span>;
+    if (v === true)
+      return <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs font-semibold whitespace-nowrap">✔ Verified</span>;
+    if (isCorrectionMode)
+      return <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs font-semibold whitespace-nowrap">Corrections Needed</span>;
+    return null;
+  };
+
   return (
     <>
-      <Header admin onLogout={() => router.push("/page.tsx")} />
+      <Header admin onLogout={() => router.push("/admin_f6c29e3d/login")} />
+
       <main className="pt-12 bg-[#F7F2FB] min-h-screen px-4 sm:px-6 pb-10">
         <div className="max-w-5xl mx-auto">
 
-          {/* Back — mobile */}
-          <div className="block lg:hidden py-4">
-            <button onClick={() => router.back()}
-              className="inline-flex items-center gap-2 bg-white hover:bg-gray-50 border border-gray-200 rounded-full px-4 py-2 shadow text-[#2D0066] font-medium text-sm transition-all">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to {entityLabel(entityType)} Dashboard
-            </button>
-          </div>
-
-          {/* Back — desktop */}
-          <button onClick={() => router.back()} aria-label="Go back"
-            className="hidden lg:flex fixed left-6 top-32 z-10 bg-white hover:bg-gray-50 border border-gray-200 rounded-full p-3 shadow-lg transition-all items-center justify-center">
-            <svg className="h-5 w-5 text-[#2D0066]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
+          <div className="h-5" />
 
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] p-5 sm:p-8 space-y-5">
 
-            <div className="flex items-start justify-between flex-wrap gap-3">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-[#2D0066]">Final Verification Summary</h1>
-                <p className="text-gray-500 mt-1 text-sm">
-                  Review all details before taking action
-                  {isFakeEntity && (
-                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 ring-1 ring-amber-200">
-                      Demo Data — {entityLabel(entityType)}
-                    </span>
-                  )}
-                </p>
-              </div>
-              {statusBadge()}
-            </div>
+            {/* ── Header row: back button inline with title ── */}
+            <div className="flex items-start gap-4">
+              {/* Back button — sits at same vertical level as the title, slightly right of edge */}
+              <button
+                onClick={() => router.back()}
+                aria-label="Go back"
+                className="flex-shrink-0 mt-1
+                  w-9 h-9 sm:w-10 sm:h-10
+                  bg-purple-50 hover:bg-[#2D0066] group
+                  border border-purple-200 hover:border-[#2D0066]
+                  rounded-full
+                  flex items-center justify-center
+                  transition-all duration-200 hover:scale-110 active:scale-95 shadow-sm"
+              >
+                <svg
+                  className="w-4 h-4 text-[#2D0066] group-hover:text-white transition-colors duration-200"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
 
-            <div className="flex flex-wrap items-center gap-3">
-              {data && (
-                <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
-                  <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Request ID</span>
-                  <span className="text-sm font-bold text-[#2D0066]">
-                    {data.tempSellerRequestId ?? data.tempSellerId ?? requestId}
-                  </span>
+              {/* Title + status badge */}
+              <div className="flex-1 flex items-start justify-between flex-wrap gap-3">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-[#2D0066]">Final Verification Summary</h1>
+                  <p className="text-gray-500 mt-1 text-sm">Review all details before taking action</p>
                 </div>
-              )}
+                {statusBadge()}
+              </div>
             </div>
 
-            {/* ── Info banners ── */}
+            <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
+              <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Request ID</span>
+              <span className="text-sm font-bold text-[#2D0066]">{data?.tempSellerRequestId ?? requestId}</span>
+            </div>
+
             {submittedDecision === "Accept" && (
               <div className="flex items-start gap-3 px-5 py-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <p className="font-semibold">Request Accepted — Status: Closed</p>
-                  <p className="text-green-600 mt-0.5">The {entityLabel(entityType).toLowerCase()} has been approved. All documents are now view-only.</p>
-                </div>
+                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div><p className="font-semibold">Request Accepted — Status: Closed</p><p className="text-green-600 mt-0.5">The seller has been approved. All documents are now view-only.</p></div>
               </div>
             )}
-
             {submittedDecision === "Reject" && (
               <div className="flex items-start gap-3 px-5 py-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <p className="font-semibold">Request Rejected — Status: Rejected</p>
-                  <p className="text-red-600 mt-0.5">This request has been declined. All documents are now view-only.</p>
-                </div>
+                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div><p className="font-semibold">Request Rejected — Status: Rejected</p><p className="text-red-600 mt-0.5">This request has been declined. All documents are now view-only.</p></div>
               </div>
             )}
-
             {isLocked && (
               <div className="flex items-start gap-3 px-5 py-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
                 <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">{LOCK_ICON}</svg>
                 <p className="font-semibold">Verification locked — documents are view-only</p>
               </div>
             )}
-
             {isCorrectionMode && (
               <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-                </svg>
-                <div>
-                  <p className="font-semibold">Corrections Needed — Status: Corrections Needed</p>
-                  <p className="text-amber-600 mt-0.5">{entityLabel(entityType)} has been notified. You can re-view and update document verification statuses.</p>
-                </div>
+                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
+                <div><p className="font-semibold">Corrections Needed</p><p className="text-amber-600 mt-0.5">Seller has been notified. You can re-view and update document verification statuses.</p></div>
               </div>
             )}
 
-            {!isLocked && !isCorrectionMode && allViewed &&
-              Object.values(fileStates).some(v => v.verified !== null) && (
-              <div className="flex items-start gap-3 px-5 py-4 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-700 text-sm">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p>
-                  Document decisions are saved <strong>locally</strong>.
-                  They will be submitted{isFakeEntity ? " (simulated for demo)" : " to the server"} when you click Accept, Reject, or Request Correction.
-                </p>
-              </div>
-            )}
-
-            {/* ── Content ── */}
             {loading ? <PageSkeleton /> : data ? (
               <>
                 <Section title="Company Details">
@@ -745,7 +744,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
 
                 <Section title="Compliance Documents">
                   <Item label="GST Number" value={data.gstNumber} />
-                  {/* ── FIX: use real gstFileUrl from API/fake data ── */}
                   <FileItem
                     label="GST Certificate"
                     fileUrl={LOCAL_GST_DOC}
@@ -755,25 +753,18 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     isVerified={activeStates["gstFile"]?.verified ?? null}
                   />
                   {data.documents?.map(doc => (
-                    <div key={doc.DocumentsId}
-                      className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 pt-4 mt-1 border-t border-purple-50">
+                    <div key={doc.DocumentsId} className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 pt-4 mt-1 border-t border-purple-50">
                       <Item label="Document Type"     value={doc.productTypes?.productTypeName} />
                       <Item label="Document Number"   value={doc.documentNumber} />
                       <Item label="Issuing Authority" value={doc.licenseIssuingAuthority} />
                       <Item label="Issue Date"        value={formatDate(doc.licenseIssueDate)} />
                       <Item label="Expiry Date"       value={formatDate(doc.licenseExpiryDate)} />
                       <Item label="License Status"    value={doc.licenseStatus} />
-                      {/* ── always use local license file ── */}
                       <FileItem
-                        label={`License — ${doc.productTypes?.productTypeName ?? "Document"}`}
+                        label={`License File — ${doc.productTypes?.productTypeName ?? "Document"}`}
                         fileUrl={LOCAL_LICENSE}
                         isLocked={isLocked}
-                        onView={() => handleViewFile(
-                          LOCAL_LICENSE,
-                          `License — ${doc.productTypes?.productTypeName ?? "Document"}`,
-                          `doc_${doc.DocumentsId}`,
-                          doc.DocumentsId
-                        )}
+                        onView={() => handleViewFile(LOCAL_LICENSE, `License File — ${doc.productTypes?.productTypeName ?? "Document"}`, `doc_${doc.DocumentsId}`)}
                         isViewed={activeStates[`doc_${doc.DocumentsId}`]?.viewed ?? false}
                         isVerified={activeStates[`doc_${doc.DocumentsId}`]?.verified ?? null}
                       />
@@ -790,7 +781,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                   <Item label="State"               value={data.address?.state?.stateName} />
                   <Item label="District"            value={data.address?.district?.districtName} />
                   <Item label="Taluka"              value={data.address?.taluka?.talukaName} />
-                  {/* ── always use local cheque file ── */}
                   <FileItem
                     label="Cancelled Cheque"
                     fileUrl={LOCAL_CHEQUE}
@@ -806,8 +796,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                   <StatusItem label="Verification" status="Complete" highlight />
                   <StatusItem label="Documents"    status={documentsVerified.status} error={documentsVerified.error} highlight={!documentsVerified.error} />
                   <StatusItem label="Bank Details" status={bankVerified.status}      error={bankVerified.error}      highlight={!bankVerified.error} />
-                  <StatusItem
-                    label="Overall Status"
+                  <StatusItem label="Overall Status"
                     status={
                       isLocked && submittedDecision === "Accept" ? "Closed" :
                       isLocked && submittedDecision === "Reject" ? "Rejected" :
@@ -815,8 +804,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       canAccept ? "Ready to Submit" : "Pending Verification"
                     }
                     highlight={canAccept || (isLocked && submittedDecision === "Accept")}
-                    error={!canAccept && !(isLocked && submittedDecision === "Accept")}
-                  />
+                    error={!canAccept && !(isLocked && submittedDecision === "Accept")} />
                 </Section>
 
                 {/* ── Admin Decision ── */}
@@ -832,7 +820,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       </div>
                     </div>
                   )}
-
                   {!allViewed && !isLocked && (
                     <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
                       <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -844,7 +831,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       </div>
                     </div>
                   )}
-
                   {allViewed && !canAccept && !hasAnyRejected && !isLocked && (
                     <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
                       <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -852,23 +838,15 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       </svg>
                       <div>
                         <p className="font-semibold text-amber-800 text-sm">Verification Incomplete</p>
-                        <p className="text-amber-700 text-sm mt-0.5">Verify or reject each document to enable actions. Only Request Correction is available until verification is complete.</p>
+                        <p className="text-amber-700 text-sm mt-0.5">Verify or reject each document to enable actions.</p>
                       </div>
                     </div>
                   )}
 
                   <div className="space-y-6">
-
                     {/* ── Review History Timeline ── */}
                     {(data?.reviewHistories?.length ?? 0) > 0 && (() => {
                       const histories = [...(data!.reviewHistories!)].reverse();
-                      const statusStyle = (s: string) => {
-                        const u = s?.toUpperCase();
-                        if (u === "APPROVED")          return { badge: "bg-green-50 text-green-700 ring-green-200",  dot: "bg-green-500", line: "border-green-200" };
-                        if (u === "REJECTED")          return { badge: "bg-red-50 text-red-700 ring-red-200",        dot: "bg-red-500",   line: "border-red-200"   };
-                        if (u?.includes("CORRECTION")) return { badge: "bg-amber-50 text-amber-700 ring-amber-200", dot: "bg-amber-500", line: "border-amber-200" };
-                        return                                { badge: "bg-blue-50 text-blue-700 ring-blue-200",    dot: "bg-blue-400",  line: "border-blue-200"  };
-                      };
                       return (
                         <div>
                           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Review History</p>
@@ -876,13 +854,13 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                             <div className="absolute left-[11px] top-3 bottom-3 w-px bg-gray-200" />
                             <div className="space-y-4">
                               {histories.map((h, idx) => {
-                                const st = statusStyle(h.status);
+                                const st = historyStatusStyle(h.status);
                                 return (
                                   <div key={h.id} className="relative flex gap-4">
                                     <div className={`relative z-10 flex-shrink-0 w-[22px] h-[22px] rounded-full border-2 border-white shadow-sm flex items-center justify-center ${st.dot}`}>
                                       {idx === 0 && (
                                         <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                         </svg>
                                       )}
                                     </div>
@@ -892,9 +870,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${st.badge}`}>
                                             {normalizeStatus(h.status)}
                                           </span>
-                                          {idx === 0 && (
-                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#2D0066] text-white">Latest</span>
-                                          )}
+                                          {idx === 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#2D0066] text-white">Latest</span>}
                                           <span className="text-xs text-gray-400 font-medium">by {h.reviewedBy}</span>
                                         </div>
                                         <span className="text-xs text-gray-400 tabular-nums">
@@ -904,7 +880,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                                           })}
                                         </span>
                                       </div>
-                                      <p className="text-sm text-gray-700 leading-relaxed">{h.comments}</p>
+                                      {h.comments && <p className="text-sm text-gray-700 leading-relaxed">{h.comments}</p>}
                                     </div>
                                   </div>
                                 );
@@ -915,69 +891,49 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       );
                     })()}
 
-                    {/* ── Comment Input ── */}
-                    {!isLocked ? (
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                          Add Comment <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
-                          value={adminComment}
-                          rows={4}
-                          onChange={e => { setAdminComment(e.target.value); setShowCommentError(false); }}
-                          placeholder="Enter your decision comments here..."
-                          className={`w-full border rounded-xl p-4 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 transition-all resize-none bg-white
-                            ${showCommentError ? "border-red-400 focus:ring-red-400" : "border-gray-300 focus:ring-[#4B0082]"}`}
-                        />
-                        {showCommentError && (
-                          <p className="flex items-center gap-1.5 mt-1.5 text-red-500 text-xs">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                            </svg>
-                            Please add a comment before taking action
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-                          Comments <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
-                          rows={4}
-                          readOnly
-                          value={adminComment}
-                          placeholder="Decision has been submitted — no further changes allowed."
-                          className="w-full border rounded-xl p-3 text-sm focus:outline-none focus:ring-2 transition-all resize-none bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0"
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                        Comments <span className="text-red-500">*</span>
+                      </label>
+                      <textarea
+                        value={adminComment}
+                        rows={4}
+                        readOnly={isLocked}
+                        onChange={e => { if (isLocked) return; setAdminComment(e.target.value); setShowCommentError(false); }}
+                        placeholder={isLocked ? "Decision has been submitted — no further changes allowed." : "Enter your comments here..."}
+                        className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none
+                          ${isLocked
+                            ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0"
+                            : showCommentError
+                              ? "border-red-400 focus:ring-red-400 bg-white"
+                              : "border-gray-200 focus:ring-[#4B0082] bg-white"
+                          }`}
+                      />
+                      {showCommentError && (
+                        <p className="flex items-center gap-1.5 mt-1.5 text-red-500 text-xs">
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                          Please add a comment before taking action
+                        </p>
+                      )}
+                    </div>
 
-                    {/* ── Action Buttons — always shown, disabled when locked ── */}
                     <div>
                       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <ActionButton
-                          action="Accept" label="Accept Request" submittingAction={submittingAction}
-                          disabled={isLocked || !canAccept || submittingAction !== null}
+                        <ActionButton action="Accept" label="Accept Request"
+                          disabled={!canAccept || !!actionModal || isLocked}
                           onClick={() => handleAction("Accept")}
-                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
-                        />
-                        <ActionButton
-                          action="Reject" label="Reject Request" submittingAction={submittingAction}
-                          disabled={isLocked || !hasAnyRejected || submittingAction !== null}
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
+                        <ActionButton action="Reject" label="Reject Request"
+                          disabled={!hasAnyRejected || !!actionModal || isLocked}
                           onClick={() => handleAction("Reject")}
-                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>}
-                        />
-                        <ActionButton
-                          action="Correction" label="Request Correction" submittingAction={submittingAction}
-                          disabled={isLocked || !allViewed || submittingAction !== null}
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
+                        <ActionButton action="Correction" label="Request Correction"
+                          disabled={!allViewed || !!actionModal || isLocked}
                           onClick={() => handleAction("Correction")}
-                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>}
-                        />
+                          icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                       </div>
                     </div>
-
                   </div>
                 </div>
               </>
@@ -986,9 +942,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                 <svg className="w-14 h-14 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-gray-500 font-medium text-sm">
-                  {!sellerId ? "No seller ID provided." : "Could not load details."}
-                </p>
+                <p className="text-gray-500 font-medium text-sm">{!sellerId ? "No seller ID provided." : "Could not load seller details."}</p>
                 <p className="text-gray-400 text-xs mt-1">Please go back and try again.</p>
               </div>
             )}
@@ -1000,116 +954,62 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       {modalOpen && currentFile && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-
-            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-base font-bold text-[#2D0066]">{currentFile.label}</h3>
-              <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-widest mb-0.5">Document Preview</p>
+                  <h3 className="text-base font-bold text-[#2D0066] truncate">{currentFile.label}</h3>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">
+                  {fileModalVerdict()}
+                  <button onClick={() => setModalOpen(false)} className="text-gray-400 hover:text-gray-600 ml-1">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex-1 overflow-auto p-6 bg-gray-50 flex items-center justify-center min-h-[300px]">
-              {currentFile.url.toLowerCase().endsWith(".pdf") ? (
-                <iframe
-                  src={currentFile.url}
-                  className="w-full h-[60vh] rounded-lg shadow border-0"
-                  title={currentFile.label}
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={currentFile.url}
-                  alt={currentFile.label}
-                  className="max-w-full max-h-[60vh] object-contain rounded-lg shadow"
-                  onError={e => {
-                    const target = e.currentTarget;
-                    target.style.display = "none";
-                    const parent = target.parentElement;
-                    if (parent && !parent.querySelector(".img-error-msg")) {
-                      const msg = document.createElement("div");
-                      msg.className = "img-error-msg flex flex-col items-center gap-3 text-gray-400";
-                      msg.innerHTML = `
-                        <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                            d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                        <p class="text-sm font-medium">Could not load file</p>
-                        <p class="text-xs text-center max-w-xs">Make sure the file exists at:<br/><code class="bg-gray-100 px-1 rounded">${currentFile.url}</code></p>
-                        <a href="${currentFile.url}" target="_blank" rel="noopener noreferrer"
-                          class="text-xs text-[#4B0082] underline">Try opening directly</a>
-                      `;
-                      parent.appendChild(msg);
-                    }
-                  }}
-                />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={currentFile.url} alt={currentFile.label} className="max-w-full max-h-[60vh] object-contain rounded-lg shadow" />
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">
+                {isLocked ? "Close" : "Cancel"}
+              </button>
+              {!isLocked && (
+                <>
+                  <button onClick={() => handleVerifyInModal(true)} className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    Verify
+                  </button>
+                  <button onClick={() => handleVerifyInModal(false)} className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    Reject
+                  </button>
+                </>
               )}
             </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {!isLocked && (() => {
-                  const state = fileStates[currentFile.fileKey];
-                  if (state?.verified === true)  return <span className="text-green-600 text-xs font-semibold">✔ Marked as Verified (not yet saved)</span>;
-                  if (state?.verified === false) return <span className="text-red-500 text-xs font-semibold">✗ Marked as Rejected (not yet saved)</span>;
-                  return null;
-                })()}
-                {isLocked && submittedDecision === "Accept" && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-green-700 text-xs font-semibold">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Closed
-                  </span>
-                )}
-                {isLocked && submittedDecision === "Reject" && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs font-semibold">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    Rejected
-                  </span>
-                )}
-                {isLocked && <span className="text-xs text-gray-400 italic">View only</span>}
-                {isCorrectionMode && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs font-semibold">
-                    Corrections Needed — verification enabled
-                  </span>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setModalOpen(false)}
-                  className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">
-                  {isLocked ? "Close" : "Cancel"}
-                </button>
-                {!isLocked && (
-                  <>
-                    <button
-                      onClick={() => handleVerifyInModal(true)}
-                      className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Verify
-                    </button>
-                    <button
-                      onClick={() => handleVerifyInModal(false)}
-                      className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Reject
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
           </div>
         </div>
+      )}
+
+      {/* ── Decision Action Modal (loading → success/error) ── */}
+      {actionModal && (
+        <DecisionActionModal
+          action={actionModal.action}
+          phase={actionModal.phase}
+          errorMessage={actionModal.errorMessage}
+          onDone={() => {
+            if (actionModal.phase === "error") {
+              setActionModal(null); // close on error so admin can retry
+            } else {
+              setActionModal(null);
+              router.back();
+            }
+          }}
+        />
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} />}
