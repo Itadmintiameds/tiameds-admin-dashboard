@@ -87,7 +87,6 @@ const buildFileStates = (detail: SellerDetail, decision: Decision): FileStateMap
   const resolveVerified = (apiValue: boolean | null | undefined, forceTrue: boolean): boolean | null => {
     if (forceTrue) return true;
     if (apiValue === true)  return true;
-    if (apiValue === false) return false;
     return null;
   };
   const resolveViewed = (verified: boolean | null): boolean => locked || verified !== null;
@@ -342,6 +341,7 @@ function FileItem({ label, fileUrl, onView, isViewed, isVerified, isLocked }: {
         </button>
         {/* ── Only show ✔ Verified — never show ✗ Rejected ── */}
         {isVerified === true && <span className="text-green-600 text-xs font-semibold">✔ Verified</span>}
+        {isVerified === false && !isLocked && <span className="text-red-500 text-xs font-semibold">✗ Rejected</span>}
         {isVerified === null && isViewed && !isLocked && <span className="text-amber-500 text-xs font-semibold">Pending decision</span>}
         {isLocked && isVerified === true && (
           <span className="inline-flex items-center gap-1 text-gray-400 text-xs italic">
@@ -665,7 +665,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             {/* ── Header row: back button inline with title ── */}
             <div className="flex items-start gap-4">
               {/* Back button — sits at same vertical level as the title, slightly right of edge */}
-              <button
+              {/* <button
                 onClick={() => router.back()}
                 aria-label="Go back"
                 className="flex-shrink-0 mt-1
@@ -682,7 +682,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                 </svg>
-              </button>
+              </button> */}
 
               {/* Title + status badge */}
               <div className="flex-1 flex items-start justify-between flex-wrap gap-3">
@@ -875,6 +875,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                                         </div>
                                         <span className="text-xs text-gray-400 tabular-nums">
                                           {new Date(h.reviewedAt).toLocaleString("en-IN", {
+                                            timeZone: "Asia/Kolkata",
                                             day: "2-digit", month: "short", year: "numeric",
                                             hour: "2-digit", minute: "2-digit",
                                           })}
