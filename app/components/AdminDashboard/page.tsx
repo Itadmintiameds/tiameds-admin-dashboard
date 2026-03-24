@@ -552,11 +552,6 @@ export default function AdminDashboard() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
-                      {!loadingPending && pendingUpdates.length > 0 && (
-                        <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-violet-600 text-white text-[11px] font-bold">
-                          {pendingUpdates.length}
-                        </span>
-                      )}
                     </div>
                     <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — pending your review</p>
                   </div>
