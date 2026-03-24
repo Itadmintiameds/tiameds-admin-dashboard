@@ -17,7 +17,6 @@ type PendingProfileUpdate = {
   email: string;
   submittedAt: string;
   status: string;
-  // API may return different field names — handle both
   [key: string]: any;
 };
 
@@ -203,9 +202,9 @@ type DeleteModalProps = {
 const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: DeleteModalProps) => {
   if (!item) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={!isDeleting ? onCancel : undefined} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" style={{ position: "relative" }}>
         <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
           <IconTrash className="w-5 h-5 text-red-600" />
         </div>
@@ -228,32 +227,49 @@ const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: Delete
   );
 };
 
-// ─── Reject Reason Modal ──────────────────────────────────────
-type RejectModalProps = {
+// ─── Reject Reason Modal (Profile Updates) ────────────────────
+// FIX: Separate modal for profile update rejection — collects reason before calling API
+type ProfileRejectModalProps = {
   item: PendingProfileUpdate | null;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   isLoading: boolean;
 };
-const RejectReasonModal = ({ item, onConfirm, onCancel, isLoading }: RejectModalProps) => {
+const ProfileRejectModal = ({ item, onConfirm, onCancel, isLoading }: ProfileRejectModalProps) => {
   const [reason, setReason] = useState("");
   const [error,  setError]  = useState(false);
+
+  // Reset state when modal opens with a new item
+  useEffect(() => {
+    if (item) { setReason(""); setError(false); }
+  }, [item]);
+
   if (!item) return null;
+
   const handleConfirm = () => {
     if (!reason.trim()) { setError(true); return; }
     onConfirm(reason.trim());
   };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!isLoading ? onCancel : undefined} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+    >
+      <div
+        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.50)", backdropFilter: "blur(4px)" }}
+        onClick={!isLoading ? onCancel : undefined}
+      />
+      <div
+        style={{ position: "relative", background: "white", borderRadius: "16px", boxShadow: "0 25px 60px rgba(0,0,0,0.2)", width: "100%", maxWidth: "440px", padding: "24px" }}
+      >
         <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
           <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
         <h2 className="text-base font-bold text-gray-800 text-center mb-1">Reject Profile Update</h2>
-        <p className="text-sm text-[#4B0082] font-semibold text-center mb-4">{item.tempSellerRequestId}</p>
+        <p className="text-sm text-gray-500 text-center mb-1">Rejecting profile update for</p>
+        <p className="text-sm font-semibold text-[#4B0082] text-center mb-4">{item.tempSellerRequestId} — {item.sellerName}</p>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
           Rejection Reason <span className="text-red-500">*</span>
         </label>
@@ -264,6 +280,7 @@ const RejectReasonModal = ({ item, onConfirm, onCancel, isLoading }: RejectModal
           placeholder="e.g. Documents are not clear. Please upload higher resolution images."
           className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 resize-none transition-all
             ${error ? "border-red-400 focus:ring-red-400" : "border-gray-200 focus:ring-[#4B0082]"}`}
+          autoFocus
         />
         {error && <p className="text-red-500 text-xs mt-1">Please provide a rejection reason.</p>}
         <div className="flex gap-3 mt-5">
@@ -311,8 +328,11 @@ export default function AdminDashboard() {
   const [loadingPending,   setLoadingPending]   = useState(false);
   const [pendingError,     setPendingError]     = useState<string | null>(null);
   const [pendingFetchTick, setPendingFetchTick] = useState(0);
-  const [rejectTarget,     setRejectTarget]     = useState<PendingProfileUpdate | null>(null);
-  const [actionLoadingId,  setActionLoadingId]  = useState<number | null>(null);
+
+  // FIX: Separate reject modal state — only opens after clicking Reject button
+  const [rejectTarget,    setRejectTarget]    = useState<PendingProfileUpdate | null>(null);
+  const [isRejecting,     setIsRejecting]     = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -419,7 +439,7 @@ export default function AdminDashboard() {
       }
       setPendingUpdates(prev => prev.filter(p => p.pendingSellerId !== item.pendingSellerId));
       showToast(`${item.tempSellerRequestId} profile update approved.`, "success");
-      setFetchTick(t => t + 1); // refresh main sellers list
+      setFetchTick(t => t + 1);
     } catch (err: any) {
       showToast(`Approve failed: ${err.message ?? "unknown error"}`, "error");
     } finally {
@@ -427,10 +447,14 @@ export default function AdminDashboard() {
     }
   };
 
-  // ── Reject profile update ─────────────────────────────────
+  // ── Reject profile update — FIX: now collects reason via modal first ──
+  const handleRejectClick = (item: PendingProfileUpdate) => {
+    setRejectTarget(item);
+  };
+
   const handleRejectConfirm = async (reason: string) => {
     if (!rejectTarget) return;
-    setActionLoadingId(rejectTarget.pendingSellerId);
+    setIsRejecting(true);
     try {
       const res = await fetch(REJECT_API(rejectTarget.pendingSellerId), {
         method: "POST",
@@ -449,10 +473,11 @@ export default function AdminDashboard() {
       setPendingUpdates(prev => prev.filter(p => p.pendingSellerId !== rejectTarget.pendingSellerId));
       setRejectTarget(null);
       showToast(`${rejectTarget.tempSellerRequestId} profile update rejected.`, "success");
+      setFetchTick(t => t + 1);
     } catch (err: any) {
       showToast(`Reject failed: ${err.message ?? "unknown error"}`, "error");
     } finally {
-      setActionLoadingId(null);
+      setIsRejecting(false);
     }
   };
 
@@ -490,7 +515,8 @@ export default function AdminDashboard() {
       {/* Toast */}
       {toast && (
         <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
-          ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}>
+          ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
+          style={{ position: "fixed", top: 20, right: 20, zIndex: 99999 }}>
           {toast.type === "success" ? <IconCheck /> : <IconClose className="w-4 h-4 text-red-600 shrink-0" />}
           {toast.message}
         </div>
@@ -500,11 +526,13 @@ export default function AdminDashboard() {
         item={deleteTarget} tabLabel={activeTabLabel}
         onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} isDeleting={isDeleting}
       />
-      <RejectReasonModal
+
+      {/* FIX: Profile reject modal — asks for reason before calling reject API */}
+      <ProfileRejectModal
         item={rejectTarget}
         onConfirm={handleRejectConfirm}
         onCancel={() => setRejectTarget(null)}
-        isLoading={actionLoadingId !== null}
+        isLoading={isRejecting}
       />
 
       <main className="bg-[#F7F2FB] min-h-screen px-5 pb-10 pt-10">
@@ -524,11 +552,11 @@ export default function AdminDashboard() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
-                      {/* {!loadingPending && pendingUpdates.length > 0 && (
+                      {!loadingPending && pendingUpdates.length > 0 && (
                         <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-violet-600 text-white text-[11px] font-bold">
                           {pendingUpdates.length}
                         </span>
-                      )} */}
+                      )}
                     </div>
                     <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — pending your review</p>
                   </div>
@@ -577,8 +605,6 @@ export default function AdminDashboard() {
                           return (
                             <tr
                               key={item.pendingSellerId}
-                              // ── FIX: pass sellerEmail in URL so RequestDetails can call
-                              //         /sellers/{id}/request-update?requestedBy={email}
                               onClick={() => router.push(
                                 `/RequestDetails/${item.tempSellerRequestId}` +
                                 `?sellerId=${item.pendingSellerId}` +
@@ -589,17 +615,9 @@ export default function AdminDashboard() {
                             >
                               <td className="px-5 py-3.5 text-gray-400 font-medium text-xs">{idx + 1}</td>
                               <td className="px-5 py-3.5 whitespace-nowrap">
-                                <div className="flex items-center gap-2">
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors underline underline-offset-2 decoration-violet-300">
-                                    {item.tempSellerRequestId}
-                                  </span>
-                                  {/* <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                    <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
-                                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                                    </svg>
-                                    Profile Update
-                                  </span> */}
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors underline underline-offset-2 decoration-violet-300">
+                                  {item.tempSellerRequestId}
+                                </span>
                               </td>
                               <td className="px-5 py-3.5 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
                               <td className="px-5 py-3.5 text-gray-500 text-xs">{item.email}</td>
@@ -626,9 +644,10 @@ export default function AdminDashboard() {
                                     )}
                                     Accept
                                   </button>
+                                  {/* FIX: Reject button now opens reason modal instead of calling API directly */}
                                   <button
                                     disabled={isActioning}
-                                    onClick={() => setRejectTarget(item)}
+                                    onClick={() => handleRejectClick(item)}
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150 disabled:opacity-50"
                                   >
                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
