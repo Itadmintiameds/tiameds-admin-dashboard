@@ -28,7 +28,6 @@ type Decision     = "Accept" | "Reject" | "Correction" | null;
 type ModalPhase   = "loading" | "success" | "error";
 type FileStateMap = Record<string, { viewed: boolean; verified: boolean | null }>;
 
-// Flat API shape (both endpoints return flat structure)
 interface FlatAddress {
   buildingNo: string; street: string; city: string; landmark: string; pinCode: string;
   stateName: string; districtName: string; talukaName: string;
@@ -40,6 +39,7 @@ interface FlatDoc {
   licenseIssueDate: string; licenseExpiryDate: string;
   licenseIssuingAuthority: string; productTypeName: string; productTypeId: number;
   pendingSellerDocumentId?: number | null;
+  documentVerified?: boolean | null;
 }
 
 interface FlatCoordinator {
@@ -49,19 +49,17 @@ interface FlatCoordinator {
 interface FlatBankDetails {
   bankName: string; branch: string; ifscCode: string;
   accountNumber: string; accountHolderName: string; bankDocumentFileUrl: string;
+  bankDocumentVerified?: boolean | null;
 }
 
-// Unified shape we work with internally
 interface SellerData {
-  // IDs
   pendingSellerId?: number | null;
   sellerId?: string | null;
-  // Core
   sellerName: string; email: string; phone: string; website: string;
   gstNumber: string; gstFileUrl: string;
+  gstVerified?: boolean | null;
   companyTypeName: string; sellerTypeName: string;
   status?: string;
-  // Nested
   address: FlatAddress;
   coordinator: FlatCoordinator;
   bankDetails: FlatBankDetails;
@@ -106,7 +104,6 @@ const decisionFromStatus = (status: string): Decision => {
 const isPdfUrl = (url: string) =>
   /\.pdf(\?|$)/i.test(url) || url.toLowerCase().includes("pdf");
 
-// Normalize raw API response → SellerData
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normalizeApiResponse = (raw: any): SellerData => ({
   pendingSellerId: raw.pendingSellerId ?? null,
@@ -117,6 +114,7 @@ const normalizeApiResponse = (raw: any): SellerData => ({
   website: raw.website ?? "",
   gstNumber: raw.gstNumber ?? "",
   gstFileUrl: raw.gstFileUrl ?? "",
+  gstVerified: raw.gstVerified ?? null,
   companyTypeName: raw.companyTypeName ?? raw.companyType?.companyTypeName ?? "",
   sellerTypeName: raw.sellerTypeName ?? raw.sellerType?.sellerTypeName ?? "",
   status: raw.status ?? "PENDING",
@@ -143,8 +141,9 @@ const normalizeApiResponse = (raw: any): SellerData => ({
     accountNumber:       raw.bankDetails?.accountNumber       ?? "",
     accountHolderName:   raw.bankDetails?.accountHolderName   ?? "",
     bankDocumentFileUrl: raw.bankDetails?.bankDocumentFileUrl ?? "",
+    bankDocumentVerified: raw.bankDetails?.bankDocumentVerified ?? null,
   },
-  documents: (raw.documents ?? []).map((d: FlatDoc) => ({
+  documents: (raw.documents ?? []).map((d: FlatDoc, idx: number) => ({
     documentFileUrl:       d.documentFileUrl       ?? "",
     documentNumber:        d.documentNumber        ?? "",
     licenseIssueDate:      d.licenseIssueDate      ?? "",
@@ -152,6 +151,7 @@ const normalizeApiResponse = (raw: any): SellerData => ({
     licenseIssuingAuthority: d.licenseIssuingAuthority ?? "",
     productTypeName:       d.productTypeName       ?? "",
     productTypeId:         d.productTypeId         ?? 0,
+    documentVerified:      d.documentVerified      ?? null,
   })),
   productTypes: raw.productTypes ?? [],
   reviewHistories: raw.reviewHistories ?? [],
@@ -160,16 +160,20 @@ const normalizeApiResponse = (raw: any): SellerData => ({
 const buildFileStates = (data: SellerData, decision: Decision): FileStateMap => {
   const accepted = decision === "Accept";
   const locked   = accepted || decision === "Reject";
-  const resolveVerified = (forceTrue: boolean): boolean | null => forceTrue ? true : null;
-  const resolveViewed   = (verified: boolean | null): boolean  => locked || verified !== null;
-  const gstV  = resolveVerified(accepted);
-  const bankV = resolveVerified(accepted);
+  const resolveVerified = (apiValue: boolean | null | undefined, forceTrue: boolean): boolean | null => {
+    if (forceTrue) return true;
+    if (apiValue === true) return true;
+    return null;
+  };
+  const resolveViewed   = (verified: boolean | null): boolean => locked || verified !== null;
+  const gstV  = resolveVerified(data.gstVerified, accepted);
+  const bankV = resolveVerified(data.bankDetails?.bankDocumentVerified, accepted);
   const init: FileStateMap = {
     gstFile:    { viewed: resolveViewed(gstV),  verified: gstV  },
     chequeFile: { viewed: resolveViewed(bankV), verified: bankV },
   };
   data.documents?.forEach((doc, idx) => {
-    const v = resolveVerified(accepted);
+    const v = resolveVerified(doc.documentVerified, accepted);
     init[`doc_${doc.productTypeId}_${idx}`] = { viewed: resolveViewed(v), verified: v };
   });
   return init;
@@ -181,23 +185,15 @@ function DecisionActionModal({
 }: {
   action: Decision; phase: ModalPhase; errorMessage?: string; onDone: () => void;
 }) {
-  // iconIn drives the animated entrance of the success/error icon.
-  // Both setState calls are deferred via setTimeout so the effect body
-  // never calls setState synchronously — satisfying react-hooks/set-state-in-effect.
   const [iconIn, setIconIn] = useState(false);
 
-  // Reset to false whenever phase becomes "loading"
   useEffect(() => {
-    if (phase !== "loading") return;
-    const t = setTimeout(() => setIconIn(false), 0);
-    return () => clearTimeout(t);
-  }, [phase]);
-
-  // Animate in once success/error phase is reached
-  useEffect(() => {
-    if (phase !== "success" && phase !== "error") return;
-    const t = setTimeout(() => setIconIn(true), 120);
-    return () => clearTimeout(t);
+    if (phase !== "loading") {
+      const t = setTimeout(() => setIconIn(true), 120);
+      return () => clearTimeout(t);
+    } else {
+      setIconIn(false);
+    }
   }, [phase]);
 
   if (!action) return null;
@@ -250,55 +246,55 @@ function DecisionActionModal({
   const successCfg = cfgMap[action as keyof typeof cfgMap];
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
-      <div style={{ animation: "modalIn 0.32s cubic-bezier(0.34,1.56,0.64,1) both", width: "100%", maxWidth: "420px", minWidth: "320px" }}
-        className={`bg-white rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-5 text-center ring-1 ${phase === "error" ? "ring-red-200 bg-gradient-to-b from-red-50 to-rose-50" : `${successCfg.ring} bg-gradient-to-b ${successCfg.bg}`}`}>
-        {phase === "loading" && (
-          <>
-            <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>
-              <svg className="w-8 h-8 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-base font-bold text-gray-700">Submitting decision…</p>
-              <p className="text-sm text-gray-400 mt-1">Please wait</p>
-            </div>
-          </>
-        )}
-        {phase === "success" && (
-          <>
-            <div className="relative flex items-center justify-center">
-              <span className={`absolute w-20 h-20 rounded-full ${successCfg.pulse} opacity-0`} style={{ animation: "pulseOut 0.85s ease-out forwards" }} />
-              <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>{successCfg.icon(iconIn)}</div>
-            </div>
-            <div style={{ opacity: iconIn ? 1 : 0, transform: iconIn ? "translateY(0)" : "translateY(6px)", transition: "all 0.3s ease 0.3s" }}>
-              <p className="text-xl font-bold text-gray-900">{successCfg.title}</p>
-              <span className={`mt-2 inline-block text-xs font-semibold px-3 py-1 rounded-full ${successCfg.badge}`}>{successCfg.subtitle}</span>
-            </div>
-            <p className="text-sm text-gray-500" style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.5s" }}>{successCfg.desc}</p>
-            <div className="flex items-center gap-2 text-xs text-gray-400" style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.65s" }}>
-              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
-              Redirecting you back…
-            </div>
-            <button onClick={onDone} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2 transition-colors">Go back now</button>
-          </>
-        )}
-        {phase === "error" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-gray-900">Submission Failed</p>
-              {errorMessage && <p className="text-sm text-red-500 mt-1">{errorMessage}</p>}
-            </div>
-            <button onClick={onDone} className="px-5 py-2.5 bg-gray-800 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition-colors">Close &amp; Try Again</button>
-          </>
-        )}
+    <>
+      <style>{`
+        @keyframes modalIn { from { transform: scale(0.82) translateY(20px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        @keyframes pulseOut { 0% { transform: scale(0.8); opacity: 0.3; } 70% { transform: scale(1.9); opacity: 0; } 100% { transform: scale(1.9); opacity: 0; } }
+      `}</style>
+      <div style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }}>
+        <div style={{ animation: "modalIn 0.32s cubic-bezier(0.34,1.56,0.64,1) both", width: "100%", maxWidth: "420px", minWidth: "320px" }}
+          className={`bg-white rounded-3xl shadow-2xl p-8 flex flex-col items-center gap-5 text-center ring-1 ${phase === "error" ? "ring-red-200 bg-gradient-to-b from-red-50 to-rose-50" : `${successCfg.ring} bg-gradient-to-b ${successCfg.bg}`}`}>
+          {phase === "loading" && (
+            <>
+              <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>
+                <svg className="w-8 h-8 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+              </div>
+              <div><p className="text-base font-bold text-gray-700">Submitting decision…</p><p className="text-sm text-gray-400 mt-1">Please wait</p></div>
+            </>
+          )}
+          {phase === "success" && (
+            <>
+              <div className="relative flex items-center justify-center">
+                <span className={`absolute w-20 h-20 rounded-full ${successCfg.pulse} opacity-0`} style={{ animation: "pulseOut 0.85s ease-out forwards" }} />
+                <div className={`w-16 h-16 rounded-full ${successCfg.iconBg} flex items-center justify-center`}>{successCfg.icon(iconIn)}</div>
+              </div>
+              <div style={{ opacity: iconIn ? 1 : 0, transform: iconIn ? "translateY(0)" : "translateY(6px)", transition: "all 0.3s ease 0.3s" }}>
+                <p className="text-xl font-bold text-gray-900">{successCfg.title}</p>
+                <span className={`mt-2 inline-block text-xs font-semibold px-3 py-1 rounded-full ${successCfg.badge}`}>{successCfg.subtitle}</span>
+              </div>
+              <p className="text-sm text-gray-500" style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.5s" }}>{successCfg.desc}</p>
+              <div className="flex items-center gap-2 text-xs text-gray-400" style={{ opacity: iconIn ? 1 : 0, transition: "opacity 0.3s ease 0.65s" }}>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
+                Redirecting you back…
+              </div>
+              <button onClick={onDone} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2 transition-colors">Go back now</button>
+            </>
+          )}
+          {phase === "error" && (
+            <>
+              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </div>
+              <div><p className="text-lg font-bold text-gray-900">Submission Failed</p>{errorMessage && <p className="text-sm text-red-500 mt-1">{errorMessage}</p>}</div>
+              <button onClick={onDone} className="px-5 py-2.5 bg-gray-800 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition-colors">Close &amp; Try Again</button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -307,7 +303,7 @@ function ProfileRejectModal({ open, onConfirm, onCancel, isLoading }: {
   open: boolean; onConfirm: (reason: string) => void; onCancel: () => void; isLoading: boolean;
 }) {
   const [reason, setReason] = useState("");
-  const [error, setError]   = useState(false);
+  const [error,  setError]  = useState(false);
   if (!open) return null;
   const handleConfirm = () => { if (!reason.trim()) { setError(true); return; } onConfirm(reason.trim()); };
   return (
@@ -315,7 +311,9 @@ function ProfileRejectModal({ open, onConfirm, onCancel, isLoading }: {
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={!isLoading ? onCancel : undefined} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
         <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
-          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </div>
         <h2 className="text-base font-bold text-gray-800 text-center mb-1">Reject Profile Update</h2>
         <p className="text-sm text-gray-500 text-center mb-4">Provide a reason — the seller will be notified.</p>
@@ -348,29 +346,24 @@ function Section({ title, children, badge }: { title: string; children: React.Re
   );
 }
 
-/**
- * CompareItem — shows old value (amber, strikethrough) and new value (green) when values differ.
- * If both old & new are provided but equal, or only value is provided, renders a plain field.
- */
-function CompareItem({ label, value, oldValue, newValue }: {
+function CompareItem({ label, value, oldValue, newValue, showDiff = false }: {
   label: string;
   value?: string | null;
   oldValue?: string | null;
   newValue?: string | null;
+  showDiff?: boolean;
 }) {
-  const hasChange = oldValue !== undefined && newValue !== undefined && oldValue !== newValue;
+  const hasChange = showDiff && oldValue !== undefined && newValue !== undefined && oldValue !== newValue;
 
   return (
     <div>
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">{label}</p>
       {hasChange ? (
         <div className="space-y-1.5">
-          {/* Old value — amber pill */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wide text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shrink-0">Old</span>
             <span className="text-sm text-amber-700 line-through decoration-amber-400">{oldValue || "—"}</span>
           </div>
-          {/* New value — green pill */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-wide text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded shrink-0">New</span>
             <span className="text-sm text-green-700 font-semibold">{newValue || "—"}</span>
@@ -383,10 +376,7 @@ function CompareItem({ label, value, oldValue, newValue }: {
   );
 }
 
-/**
- * CompareFileItem — shows file view button. If file URL changed, labels old/new.
- */
-function CompareFileItem({ label, fileUrl, onView, isViewed, isVerified, isLocked, fileChanged }: {
+function CompareFileItem({ label, fileUrl, onView, isViewed, isVerified, isLocked, fileChanged, showDiff = false }: {
   label: string;
   fileUrl?: string | null;
   onView: () => void;
@@ -394,6 +384,7 @@ function CompareFileItem({ label, fileUrl, onView, isViewed, isVerified, isLocke
   isVerified: boolean | null;
   isLocked: boolean;
   fileChanged?: boolean;
+  showDiff?: boolean;
 }) {
   if (!fileUrl) return (
     <div>
@@ -404,7 +395,7 @@ function CompareFileItem({ label, fileUrl, onView, isViewed, isVerified, isLocke
   return (
     <div>
       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">{label}</p>
-      {fileChanged && (
+      {showDiff && fileChanged && (
         <p className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded inline-block mb-2">File updated</p>
       )}
       <div className="flex items-center gap-3 flex-wrap">
@@ -480,7 +471,6 @@ function ActionButton({ action, label, icon, disabled, onClick }: {
   );
 }
 
-// ─── Changes Summary Banner ───────────────────────────────────
 function ChangeCount({ count }: { count: number }) {
   if (count === 0) return null;
   return (
@@ -538,7 +528,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
 
     const fetchAll = async () => {
       if (isProfileUpdate) {
-        // 1. Fetch pending (new) data
         const pendingRes = await fetch(`${BASE_URL}/admin/seller-requests/pending/${sellerId}`, {
           headers: { "X-API-Key": API_KEY },
         });
@@ -555,8 +544,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         setSubmittedDecision(decision);
         setFileStates(buildFileStates(normalized, decision));
 
-        // 2. Fetch current (old) data using sellerId from pending response
-        const currentSellerId = rawNew.sellerId; // e.g. "DEMFG0022"
+        const currentSellerId = rawNew.sellerId;
         if (currentSellerId) {
           if (!cancelled) setLoadingOld(true);
           try {
@@ -575,7 +563,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
           }
         }
       } else {
-        // Regular new-seller flow
         const res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}`, {
           headers: { "X-API-Key": API_KEY },
         });
@@ -700,13 +687,15 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   }, [adminComment, canAccept, hasAnyRejected, allViewed, sellerId, fileStates, router, showToast]);
 
   const handleProfileApprove = useCallback(async () => {
+    if (!adminComment.trim()) { setShowCommentError(true); return; }
     if (!pendingSellerId) return;
     setProfileActionLoading(true);
     setActionModal({ action: "Accept", phase: "loading" });
     try {
       const res = await fetch(
         `${BASE_URL}/admin/seller-requests/${pendingSellerId}/approve?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
-        { method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" } }
+        { method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ comments: adminComment }) }
       );
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
       setIsPendingUpdate(false);
@@ -717,9 +706,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     } finally {
       setProfileActionLoading(false);
     }
-  }, [pendingSellerId, router]);
+  }, [pendingSellerId, router, adminComment]);
 
   const handleProfileReject = useCallback(async (reason: string) => {
+    if (!adminComment.trim()) { setShowCommentError(true); return; }
     if (!pendingSellerId) return;
     setProfileActionLoading(true);
     setProfileRejectModalOpen(false);
@@ -729,7 +719,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         `${BASE_URL}/admin/seller-requests/${pendingSellerId}/reject?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
         {
           method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ pendingSellerId, action: "REJECT", rejectionReason: reason, approvedBy: APPROVED_BY }),
+          body: JSON.stringify({ pendingSellerId, action: "REJECT", rejectionReason: reason, comments: adminComment, approvedBy: APPROVED_BY }),
         }
       );
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
@@ -741,7 +731,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     } finally {
       setProfileActionLoading(false);
     }
-  }, [pendingSellerId, router]);
+  }, [pendingSellerId, router, adminComment]);
 
   // ── Status badge ──
   const statusBadge = () => {
@@ -819,10 +809,11 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
 
   // Count changes per section
   const companyChanges = useMemo(() => {
-    if (!oldData || !newData) return 0;
+    if (!oldData || !newData || !isPendingUpdate) return 0;
     return [
       diff(oldData.sellerName, newData.sellerName),
       diff(oldData.companyTypeName, newData.companyTypeName),
+      diff(oldData.sellerTypeName, newData.sellerTypeName),
       diff(oldData.phone, newData.phone),
       diff(oldData.email, newData.email),
       diff(oldData.website, newData.website),
@@ -833,30 +824,31 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       diff(oldData.address.stateName, newData.address.stateName),
       diff(oldData.address.districtName, newData.address.districtName),
       diff(oldData.address.talukaName, newData.address.talukaName),
+      diff(oldData.address.landmark, newData.address.landmark),
+      diff(oldData.address.pinCode, newData.address.pinCode),
     ].filter(d => "oldValue" in d).length;
-  }, [oldData, newData, diff]);
+  }, [oldData, newData, diff, isPendingUpdate]);
 
   const coordinatorChanges = useMemo(() => {
-    if (!oldData || !newData) return 0;
+    if (!oldData || !newData || !isPendingUpdate) return 0;
     return [
       diff(oldData.coordinator.name, newData.coordinator.name),
       diff(oldData.coordinator.designation, newData.coordinator.designation),
       diff(oldData.coordinator.email, newData.coordinator.email),
       diff(oldData.coordinator.mobile, newData.coordinator.mobile),
     ].filter(d => "oldValue" in d).length;
-  }, [oldData, newData, diff]);
+  }, [oldData, newData, diff, isPendingUpdate]);
 
   const bankChanges = useMemo(() => {
-    if (!oldData || !newData) return 0;
+    if (!oldData || !newData || !isPendingUpdate) return 0;
     return [
       diff(oldData.bankDetails.bankName, newData.bankDetails.bankName),
       diff(oldData.bankDetails.branch, newData.bankDetails.branch),
       diff(oldData.bankDetails.ifscCode, newData.bankDetails.ifscCode),
       diff(oldData.bankDetails.accountNumber, newData.bankDetails.accountNumber),
       diff(oldData.bankDetails.accountHolderName, newData.bankDetails.accountHolderName),
-      diff(oldData.bankDetails.bankDocumentFileUrl, newData.bankDetails.bankDocumentFileUrl),
     ].filter(d => "oldValue" in d).length;
-  }, [oldData, newData, diff]);
+  }, [oldData, newData, diff, isPendingUpdate]);
 
   const totalChanges = companyChanges + coordinatorChanges + bankChanges;
 
@@ -901,33 +893,19 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
               <span className="text-sm font-bold text-[#2D0066]">{newData?.sellerId ?? requestId}</span>
             </div>
 
-            {/* Profile Update Banner */}
+            {/* Profile Update Info Banner */}
             {isPendingUpdate && (
-              <div className="flex items-start justify-between gap-4 px-5 py-4 bg-amber-50 border border-amber-200 rounded-xl flex-wrap">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
-                  <div>
-                    <p className="font-semibold text-amber-800 text-sm">Profile Update — Pending Your Review</p>
-                    <p className="text-amber-700 text-xs mt-0.5">
-                      This seller has submitted changes to their profile.
-                      {totalChanges > 0 && !loadingOld && (
-                        <span className="ml-1 font-semibold">{totalChanges} field{totalChanges !== 1 ? "s" : ""} changed.</span>
-                      )}
-                      {loadingOld && <span className="ml-1 italic">Loading comparison…</span>}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button disabled={profileActionLoading} onClick={handleProfileApprove}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 border border-emerald-700 transition-all disabled:opacity-50 shadow-sm">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                    Accept Update
-                  </button>
-                  <button disabled={profileActionLoading} onClick={() => setProfileRejectModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 border border-red-700 transition-all disabled:opacity-50 shadow-sm">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    Reject Update
-                  </button>
+              <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                <div>
+                  <p className="font-semibold text-amber-800 text-sm">Profile Update — Pending Your Review</p>
+                  <p className="text-amber-700 text-xs mt-0.5">
+                    This seller has submitted changes to their profile. Review the highlighted changes below, then accept or reject at the bottom of this page.
+                    {totalChanges > 0 && !loadingOld && (
+                      <span className="ml-1 font-semibold">{totalChanges} field{totalChanges !== 1 ? "s" : ""} changed.</span>
+                    )}
+                    {loadingOld && <span className="ml-1 italic">Loading comparison…</span>}
+                  </p>
                 </div>
               </div>
             )}
@@ -961,41 +939,58 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             {loading ? <PageSkeleton /> : newData ? (
               <>
                 {/* ── Company Details ── */}
-                <Section title="Company Details" badge={<ChangeCount count={companyChanges} />}>
-                  <CompareItem label="Seller Name" value={newData.sellerName} {...diff(oldData?.sellerName, newData.sellerName)} />
-                  <CompareItem label="Company Type" value={newData.companyTypeName} {...diff(oldData?.companyTypeName, newData.companyTypeName)} />
-                  <CompareItem label="Seller Type" value={newData.sellerTypeName} {...diff(oldData?.sellerTypeName, newData.sellerTypeName)} />
-                  <CompareItem label="Phone" value={newData.phone} {...diff(oldData?.phone, newData.phone)} />
-                  <CompareItem label="Email" value={newData.email} {...diff(oldData?.email, newData.email)} />
-                  <CompareItem label="Website" value={newData.website || "—"} {...diff(oldData?.website, newData.website)} />
-                  <CompareItem label="GST Number" value={newData.gstNumber} {...diff(oldData?.gstNumber, newData.gstNumber)} />
+                <Section title="Company Details" badge={isPendingUpdate ? <ChangeCount count={companyChanges} /> : undefined}>
+                  <CompareItem label="Seller Name" value={newData.sellerName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.sellerName, newData.sellerName) : {})} />
+                  <CompareItem label="Company Type" value={newData.companyTypeName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.companyTypeName, newData.companyTypeName) : {})} />
+                  <CompareItem label="Seller Type" value={newData.sellerTypeName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.sellerTypeName, newData.sellerTypeName) : {})} />
+                  <CompareItem label="Phone" value={newData.phone}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.phone, newData.phone) : {})} />
+                  <CompareItem label="Email" value={newData.email}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.email, newData.email) : {})} />
+                  <CompareItem label="Website" value={newData.website || "—"}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.website, newData.website) : {})} />
                   <div className="md:col-span-2">
                     <CompareItem
                       label="Address"
                       value={[newData.address.buildingNo, newData.address.street, newData.address.city, newData.address.pinCode].filter(Boolean).join(", ")}
-                      {...diff(
+                      showDiff={isPendingUpdate}
+                      {...(isPendingUpdate ? diff(
                         [oldData?.address.buildingNo, oldData?.address.street, oldData?.address.city, oldData?.address.pinCode].filter(Boolean).join(", "),
                         [newData.address.buildingNo, newData.address.street, newData.address.city, newData.address.pinCode].filter(Boolean).join(", ")
-                      )}
+                      ) : {})}
                     />
                   </div>
-                  <CompareItem label="State" value={newData.address.stateName} {...diff(oldData?.address.stateName, newData.address.stateName)} />
-                  <CompareItem label="District" value={newData.address.districtName} {...diff(oldData?.address.districtName, newData.address.districtName)} />
-                  <CompareItem label="Taluka" value={newData.address.talukaName} {...diff(oldData?.address.talukaName, newData.address.talukaName)} />
-                  <CompareItem label="Landmark" value={newData.address.landmark || "—"} {...diff(oldData?.address.landmark, newData.address.landmark)} />
-                  <CompareItem label="Pin Code" value={newData.address.pinCode} {...diff(oldData?.address.pinCode, newData.address.pinCode)} />
+                  <CompareItem label="State" value={newData.address.stateName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.address.stateName, newData.address.stateName) : {})} />
+                  <CompareItem label="District" value={newData.address.districtName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.address.districtName, newData.address.districtName) : {})} />
+                  <CompareItem label="Taluka" value={newData.address.talukaName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.address.talukaName, newData.address.talukaName) : {})} />
+                  <CompareItem label="Landmark" value={newData.address.landmark || "—"}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.address.landmark, newData.address.landmark) : {})} />
+                  <CompareItem label="Pin Code" value={newData.address.pinCode}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.address.pinCode, newData.address.pinCode) : {})} />
                 </Section>
 
                 {/* ── Coordinator Details ── */}
-                <Section title="Coordinator Details" badge={<ChangeCount count={coordinatorChanges} />}>
-                  <CompareItem label="Name" value={newData.coordinator.name} {...diff(oldData?.coordinator.name, newData.coordinator.name)} />
-                  <CompareItem label="Designation" value={newData.coordinator.designation} {...diff(oldData?.coordinator.designation, newData.coordinator.designation)} />
-                  <CompareItem label="Email" value={newData.coordinator.email} {...diff(oldData?.coordinator.email, newData.coordinator.email)} />
-                  <CompareItem label="Mobile" value={newData.coordinator.mobile} {...diff(oldData?.coordinator.mobile, newData.coordinator.mobile)} />
+                <Section title="Coordinator Details" badge={isPendingUpdate ? <ChangeCount count={coordinatorChanges} /> : undefined}>
+                  <CompareItem label="Name" value={newData.coordinator.name}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.coordinator.name, newData.coordinator.name) : {})} />
+                  <CompareItem label="Designation" value={newData.coordinator.designation}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.coordinator.designation, newData.coordinator.designation) : {})} />
+                  <CompareItem label="Email" value={newData.coordinator.email}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.coordinator.email, newData.coordinator.email) : {})} />
+                  <CompareItem label="Mobile" value={newData.coordinator.mobile}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.coordinator.mobile, newData.coordinator.mobile) : {})} />
                 </Section>
 
                 {/* ── Compliance Documents ── */}
                 <Section title="Compliance Documents">
+                  <CompareItem label="GST Number" value={newData.gstNumber}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.gstNumber, newData.gstNumber) : {})} />
                   <CompareFileItem
                     label="GST Certificate"
                     fileUrl={newData.gstFileUrl}
@@ -1003,6 +998,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     onView={() => handleViewFile(newData.gstFileUrl, "GST Certificate", "gstFile")}
                     isViewed={activeStates["gstFile"]?.viewed ?? false}
                     isVerified={activeStates["gstFile"]?.verified ?? null}
+                    showDiff={isPendingUpdate}
                     fileChanged={!!oldData && oldData.gstFileUrl !== newData.gstFileUrl}
                   />
 
@@ -1012,12 +1008,14 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     return (
                       <div key={fileKey} className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 pt-4 mt-1 border-t border-purple-50">
                         <CompareItem label="Document Type" value={doc.productTypeName} />
-                        <CompareItem label="Document Number" value={doc.documentNumber} {...diff(oldDoc?.documentNumber, doc.documentNumber)} />
-                        <CompareItem label="Issuing Authority" value={doc.licenseIssuingAuthority} {...diff(oldDoc?.licenseIssuingAuthority, doc.licenseIssuingAuthority)} />
+                        <CompareItem label="Document Number" value={doc.documentNumber}
+                          showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(oldDoc.documentNumber, doc.documentNumber) : {})} />
+                        <CompareItem label="Issuing Authority" value={doc.licenseIssuingAuthority}
+                          showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(oldDoc.licenseIssuingAuthority, doc.licenseIssuingAuthority) : {})} />
                         <CompareItem label="Issue Date" value={formatDate(doc.licenseIssueDate)}
-                          {...(oldDoc ? diff(formatDate(oldDoc.licenseIssueDate), formatDate(doc.licenseIssueDate)) : {})} />
+                          showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(formatDate(oldDoc.licenseIssueDate), formatDate(doc.licenseIssueDate)) : {})} />
                         <CompareItem label="Expiry Date" value={formatDate(doc.licenseExpiryDate)}
-                          {...(oldDoc ? diff(formatDate(oldDoc.licenseExpiryDate), formatDate(doc.licenseExpiryDate)) : {})} />
+                          showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(formatDate(oldDoc.licenseExpiryDate), formatDate(doc.licenseExpiryDate)) : {})} />
                         <CompareFileItem
                           label={`License File — ${doc.productTypeName}`}
                           fileUrl={doc.documentFileUrl}
@@ -1025,6 +1023,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                           onView={() => handleViewFile(doc.documentFileUrl, `License File — ${doc.productTypeName}`, fileKey)}
                           isViewed={activeStates[fileKey]?.viewed ?? false}
                           isVerified={activeStates[fileKey]?.verified ?? null}
+                          showDiff={isPendingUpdate}
                           fileChanged={!!oldDoc && oldDoc.documentFileUrl !== doc.documentFileUrl}
                         />
                       </div>
@@ -1033,19 +1032,24 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                 </Section>
 
                 {/* ── Bank Account Details ── */}
-                <Section title="Bank Account Details" badge={<ChangeCount count={bankChanges} />}>
-                  <CompareItem label="Bank Name" value={newData.bankDetails.bankName} {...diff(oldData?.bankDetails.bankName, newData.bankDetails.bankName)} />
-                  <CompareItem label="Branch" value={newData.bankDetails.branch} {...diff(oldData?.bankDetails.branch, newData.bankDetails.branch)} />
-                  <CompareItem label="IFSC Code" value={newData.bankDetails.ifscCode} {...diff(oldData?.bankDetails.ifscCode, newData.bankDetails.ifscCode)} />
+                <Section title="Bank Account Details" badge={isPendingUpdate ? <ChangeCount count={bankChanges} /> : undefined}>
+                  <CompareItem label="Bank Name" value={newData.bankDetails.bankName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.bankDetails.bankName, newData.bankDetails.bankName) : {})} />
+                  <CompareItem label="Branch" value={newData.bankDetails.branch}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.bankDetails.branch, newData.bankDetails.branch) : {})} />
+                  <CompareItem label="IFSC Code" value={newData.bankDetails.ifscCode}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.bankDetails.ifscCode, newData.bankDetails.ifscCode) : {})} />
                   <CompareItem
                     label="Account Number"
                     value={newData.bankDetails.accountNumber ? `****${newData.bankDetails.accountNumber.slice(-4)}` : "—"}
-                    {...(oldData ? diff(
+                    showDiff={isPendingUpdate}
+                    {...(isPendingUpdate && oldData ? diff(
                       oldData.bankDetails.accountNumber ? `****${oldData.bankDetails.accountNumber.slice(-4)}` : "—",
                       newData.bankDetails.accountNumber ? `****${newData.bankDetails.accountNumber.slice(-4)}` : "—"
                     ) : {})}
                   />
-                  <CompareItem label="Account Holder Name" value={newData.bankDetails.accountHolderName} {...diff(oldData?.bankDetails.accountHolderName, newData.bankDetails.accountHolderName)} />
+                  <CompareItem label="Account Holder Name" value={newData.bankDetails.accountHolderName}
+                    showDiff={isPendingUpdate} {...(isPendingUpdate ? diff(oldData?.bankDetails.accountHolderName, newData.bankDetails.accountHolderName) : {})} />
                   <CompareFileItem
                     label="Bank Document"
                     fileUrl={newData.bankDetails.bankDocumentFileUrl}
@@ -1053,6 +1057,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     onView={() => handleViewFile(newData.bankDetails.bankDocumentFileUrl, "Bank Document", "chequeFile")}
                     isViewed={activeStates["chequeFile"]?.viewed ?? false}
                     isVerified={activeStates["chequeFile"]?.verified ?? null}
+                    showDiff={isPendingUpdate}
                     fileChanged={!!oldData && oldData.bankDetails.bankDocumentFileUrl !== newData.bankDetails.bankDocumentFileUrl}
                   />
                 </Section>
@@ -1069,53 +1074,60 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     error={!canAccept && !(isLocked && submittedDecision === "Accept")} />
                 </Section>
 
-                {/* ── Admin Decision (non-update flow only) ── */}
-                {!isPendingUpdate && (
-                  <div className="border border-purple-200 rounded-xl p-5">
-                    <h2 className="text-lg font-bold text-[#2D0066] mb-4 pb-2 border-b border-purple-100">Admin Decision</h2>
-                    {isLocked && (
-                      <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg flex items-start gap-3">
-                        <svg className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">{LOCK_ICON}</svg>
-                        <div>
-                          <p className="font-semibold text-gray-600 text-sm">Decision submitted — no further changes allowed</p>
-                          <p className="text-gray-500 text-sm mt-0.5">All actions and document verification are locked. You may only view files.</p>
-                        </div>
+                {/* ── Admin Decision Panel (same template for both flows) ── */}
+                <div className="border border-purple-200 rounded-xl p-5">
+                  <h2 className="text-lg font-bold text-[#2D0066] mb-4 pb-2 border-b border-purple-100">Admin Decision</h2>
+
+                  {isLocked && (
+                    <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg flex items-start gap-3">
+                      <svg className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">{LOCK_ICON}</svg>
+                      <div>
+                        <p className="font-semibold text-gray-600 text-sm">Decision submitted — no further changes allowed</p>
+                        <p className="text-gray-500 text-sm mt-0.5">All actions and document verification are locked. You may only view files.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {!allViewed && !isLocked && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                      <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                      <div><p className="font-semibold text-amber-800 text-sm">View All Documents First</p><p className="text-amber-700 text-sm mt-0.5">You must view and verify all documents before any action can be taken.</p></div>
+                    </div>
+                  )}
+
+                  {allViewed && !canAccept && !hasAnyRejected && !isLocked && !isPendingUpdate && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                      <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                      <div><p className="font-semibold text-amber-800 text-sm">Verification Incomplete</p><p className="text-amber-700 text-sm mt-0.5">Verify or reject each document to enable actions.</p></div>
+                    </div>
+                  )}
+
+                  <div className="space-y-6">
+                    {(newData?.reviewHistories?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Review History</p>
+                        <ReviewHistoryTimeline histories={[...(newData!.reviewHistories!)].reverse()} />
                       </div>
                     )}
-                    {!allViewed && !isLocked && (
-                      <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                        <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        <div><p className="font-semibold text-amber-800 text-sm">View All Documents First</p><p className="text-amber-700 text-sm mt-0.5">You must view and verify all documents before any action can be taken.</p></div>
-                      </div>
-                    )}
-                    {allViewed && !canAccept && !hasAnyRejected && !isLocked && (
-                      <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                        <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                        <div><p className="font-semibold text-amber-800 text-sm">Verification Incomplete</p><p className="text-amber-700 text-sm mt-0.5">Verify or reject each document to enable actions.</p></div>
-                      </div>
-                    )}
-                    <div className="space-y-6">
-                      {(newData?.reviewHistories?.length ?? 0) > 0 && (
-                        <div>
-                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Review History</p>
-                          <ReviewHistoryTimeline histories={[...(newData!.reviewHistories!)].reverse()} />
-                        </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Comments <span className="text-red-500">*</span></label>
+                      <textarea value={adminComment} rows={4} readOnly={isLocked}
+                        onChange={e => { if (isLocked) return; setAdminComment(e.target.value); setShowCommentError(false); }}
+                        placeholder={isLocked ? "Decision has been submitted — no further changes allowed." : "Enter your comments here..."}
+                        className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${isLocked ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0" : showCommentError ? "border-red-400 focus:ring-red-400 bg-white" : "border-gray-200 focus:ring-[#4B0082] bg-white"}`} />
+                      {showCommentError && (
+                        <p className="flex items-center gap-1.5 mt-1.5 text-red-500 text-xs">
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                          Please add a comment before taking action
+                        </p>
                       )}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Comments <span className="text-red-500">*</span></label>
-                        <textarea value={adminComment} rows={4} readOnly={isLocked}
-                          onChange={e => { if (isLocked) return; setAdminComment(e.target.value); setShowCommentError(false); }}
-                          placeholder={isLocked ? "Decision has been submitted — no further changes allowed." : "Enter your comments here..."}
-                          className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${isLocked ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0" : showCommentError ? "border-red-400 focus:ring-red-400 bg-white" : "border-gray-200 focus:ring-[#4B0082] bg-white"}`} />
-                        {showCommentError && (
-                          <p className="flex items-center gap-1.5 mt-1.5 text-red-500 text-xs">
-                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                            Please add a comment before taking action
-                          </p>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
+                      {!isPendingUpdate ? (
+                        // Seller Request: 3 actions
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <ActionButton action="Accept" label="Accept Request" disabled={!canAccept || !!actionModal || isLocked} onClick={() => handleAction("Accept")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
@@ -1124,23 +1136,35 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                           <ActionButton action="Correction" label="Request Correction" disabled={!allViewed || !!actionModal || isLocked} onClick={() => handleAction("Correction")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                         </div>
-                      </div>
+                      ) : (
+                        // Profile Update: 2 actions
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <ActionButton action="Accept" label="Accept Update"
+                            disabled={!!actionModal || isLocked || profileActionLoading}
+                            onClick={() => {
+                              if (!adminComment.trim()) { setShowCommentError(true); return; }
+                              setShowCommentError(false);
+                              handleProfileApprove();
+                            }}
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
+                          <ActionButton action="Reject" label="Reject Update"
+                            disabled={!!actionModal || isLocked || profileActionLoading}
+                            onClick={() => {
+                              if (!adminComment.trim()) { setShowCommentError(true); return; }
+                              setShowCommentError(false);
+                              setProfileRejectModalOpen(true);
+                            }}
+                            icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-
-                {/* Review History for profile update flow */}
-                {isPendingUpdate && (newData?.reviewHistories?.length ?? 0) > 0 && (
-                  <div className="border border-purple-200 rounded-xl p-5">
-                    <h2 className="text-lg font-bold text-[#2D0066] mb-4 pb-2 border-b border-purple-100">Review History</h2>
-                    <ReviewHistoryTimeline histories={[...(newData!.reviewHistories!)].reverse()} />
-                  </div>
-                )}
+                </div>
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <svg className="w-14 h-14 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <p className="text-gray-500 font-medium text-sm">{!sellerId ? "No seller ID provided." : "Could not load seller details."}</p>
+                <p className="text-gray-500 font-medium text-sm">{!sellerId ? "No seller ID provided." : "Could not load seller details."}</p>  
                 <p className="text-gray-400 text-xs mt-1">Please go back and try again.</p>
               </div>
             )}
@@ -1178,7 +1202,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
               <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">
                 {isLocked ? "Close" : "Cancel"}
               </button>
-              {!isLocked && (
+              {!isLocked && !isPendingUpdate && (
                 <div className="flex items-center gap-3">
                   <button onClick={() => handleVerifyInModal(true)} className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>Verify
@@ -1204,6 +1228,22 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} />}
+
+      {/* ── Floating Back Button ── */}
+      <button
+        onClick={() => router.back()}
+        className="fixed left-5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center gap-1.5 group"
+        aria-label="Go back"
+      >
+        <div className="w-10 h-10 rounded-full bg-white border border-purple-200 shadow-lg flex items-center justify-center text-[#4B0082] group-hover:bg-[#4B0082] group-hover:text-white group-hover:border-[#4B0082] group-hover:shadow-xl transition-all duration-200 active:scale-90">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+          </svg>
+        </div>
+        <span className="text-[10px] font-semibold text-[#4B0082] group-hover:text-[#2D0066] transition-colors opacity-0 group-hover:opacity-100 bg-white px-1.5 py-0.5 rounded shadow-sm border border-purple-100 whitespace-nowrap">
+          Back
+        </span>
+      </button>
     </>
   );
 }

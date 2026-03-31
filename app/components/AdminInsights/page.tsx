@@ -2,7 +2,7 @@
 
 import Header from "@/app/components/Header";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 // ─── Constants ────────────────────────────────────────────────
 const API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
@@ -34,8 +34,21 @@ interface Seller {
   requestId: string;
   name: string;
   email: string;
-  date: string;   // ISO date string
-  status: string; // normalised
+  date: string;
+  status: string;
+}
+
+// ✅ FIX 2: typed API response shape instead of any[]
+interface SellerApiItem {
+  tempSellerId: number;
+  tempSellerRequestId?: string;
+  tempSellerName?: string;
+  sellerName?: string;
+  tempSellerEmail?: string;
+  email?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  status?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -132,22 +145,40 @@ function Skeleton() {
 export default function AdminInsights() {
   const router = useRouter();
 
-  const [sellers,  setSellers]  = useState<Seller[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
+  const [sellers,   setSellers]   = useState<Seller[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
 
-  // ── Fetch seller list ──────────────────────────────────────
+  // ✅ FIX 1: track whether the effect has already started fetching so
+  //    setLoading(true) / setError(null) are called only once per mount,
+  //    inside a RAF callback — never synchronously in the effect body.
+  const fetchedRef = useRef(false);
+
   useEffect(() => {
+    // Guard: only run once (StrictMode double-invoke safe)
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+
+    // Defer the loading flag update out of the synchronous effect body
+    const raf = requestAnimationFrame(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setError(null);
+      }
+    });
 
     fetch(API_URL, { headers: { "X-API-Key": API_KEY } })
       .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-      .then(json => {
+      .then((json: { data?: SellerApiItem[] } | SellerApiItem[]) => {
         if (cancelled) return;
-        const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
+        const list: SellerApiItem[] = Array.isArray(json)
+          ? json
+          : Array.isArray((json as { data?: SellerApiItem[] }).data)
+            ? (json as { data: SellerApiItem[] }).data
+            : [];
         setSellers(list.map(item => ({
           id:        item.tempSellerId,
           requestId: item.tempSellerRequestId ?? `#${item.tempSellerId}`,
@@ -157,10 +188,13 @@ export default function AdminInsights() {
           status:    normalizeStatus(item.status ?? ""),
         })));
       })
-      .catch(err => { if (!cancelled) setError(err.message ?? "Failed to load"); })
+      .catch((err: Error) => { if (!cancelled) setError(err.message ?? "Failed to load"); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, []);
 
   // ── Derived data ───────────────────────────────────────────
@@ -175,7 +209,6 @@ export default function AdminInsights() {
     corrections: inRange.filter(r => r.status === "Corrections Needed").length,
   }), [inRange]);
 
-  // Latest actioned = Closed / Rejected / Corrections Needed — sorted newest first
   const recentActioned = useMemo(() =>
     inRange
       .filter(r => r.status === "Closed" || r.status === "Rejected" || r.status === "Corrections Needed")
@@ -184,7 +217,6 @@ export default function AdminInsights() {
     [inRange]
   );
 
-  // Latest open = Open / In Progress — sorted newest first
   const recentOpen = useMemo(() =>
     inRange
       .filter(r => r.status === "Open" || r.status === "In Progress")
@@ -193,7 +225,6 @@ export default function AdminInsights() {
     [inRange]
   );
 
-  // All sellers sorted newest first — for "recent requests" strip
   const allRecent = useMemo(() =>
     [...sellers]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -218,7 +249,6 @@ export default function AdminInsights() {
                 <p className="text-gray-500 text-sm mt-1">Live overview of seller onboarding requests</p>
               </div>
 
-              {/* Time range toggle */}
               <div className="inline-flex bg-[#e9e2ff] p-1 rounded-full shadow-sm">
                 {(["today", "week", "month", "year"] as TimeRange[]).map(r => (
                   <button key={r} onClick={() => setTimeRange(r)}
@@ -259,12 +289,8 @@ export default function AdminInsights() {
           {/* ── Two-column section ────────────────────────── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-            {/* Recently Actioned */}
             <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] border border-gray-100 p-6">
-              <SectionHeading
-                title="Recently Actioned"
-                sub="Latest Closed · Rejected · Corrections Needed"
-              />
+              <SectionHeading title="Recently Actioned" sub="Latest Closed · Rejected · Corrections Needed" />
               {loading ? <Skeleton /> : recentActioned.length === 0
                 ? <EmptyState message="No actioned requests in this period." />
                 : (
@@ -276,12 +302,8 @@ export default function AdminInsights() {
                 )}
             </div>
 
-            {/* Awaiting Action */}
             <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] border border-gray-100 p-6">
-              <SectionHeading
-                title="Awaiting Action"
-                sub="Latest Open · In Progress requests"
-              />
+              <SectionHeading title="Awaiting Action" sub="Latest Open · In Progress requests" />
               {loading ? <Skeleton /> : recentOpen.length === 0
                 ? <EmptyState message="No pending requests in this period." />
                 : (
