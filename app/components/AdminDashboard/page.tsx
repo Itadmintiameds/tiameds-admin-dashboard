@@ -17,16 +17,14 @@ type PendingProfileUpdate = {
   email: string;
   submittedAt: string;
   status: string;
+  sellerId: string;
   [key: string]: any;
 };
 
 // ─── Constants ────────────────────────────────────────────────
 const API_URL         = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
 const PENDING_API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/admin/seller-requests/pending";
-const APPROVE_API     = (id: number) => `https://api-test-aggreator.tiameds.ai/api/v1/admin/seller-requests/${id}/approve?approvedBy=admin@example.com`;
-const REJECT_API      = (id: number) => `https://api-test-aggreator.tiameds.ai/api/v1/admin/seller-requests/${id}/reject?approvedBy=admin@example.com`;
 const API_KEY         = "YOUR_API_KEY";
-const APPROVED_BY     = "admin@example.com";
 const PAGE_SIZE       = 10;
 
 const DELETE_API: Record<RequestType, (id: number) => string> = {
@@ -149,19 +147,14 @@ const IconEmpty = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
-const IconCheck = () => (
-  <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-);
-const IconRefresh = ({ className = "w-4 h-4" }: { className?: string }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-  </svg>
-);
 const IconUser = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
+const IconRefresh = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
 
@@ -187,110 +180,81 @@ const TableSkeleton = ({ cols = 7 }: { cols?: number }) => (
         {Array.from({ length: cols }, (_, j) => (
           <td key={j} className="px-5 py-3.5">
             <div className="h-3.5 bg-gray-100 rounded-full animate-pulse" style={{ width: `${45 + j * 8}%` }} />
-          </td>
+           </td>
         ))}
-      </tr>
+       </tr>
     ))}
   </>
 );
 
-// ─── Delete Modal ─────────────────────────────────────────────
+// ─── Delete Modal (Fixed) ─────────────────────────────────────────────
 type DeleteModalProps = {
   item: Request | null; tabLabel: string;
   onConfirm: () => void; onCancel: () => void; isDeleting: boolean;
 };
 const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: DeleteModalProps) => {
   if (!item) return null;
+  
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={!isDeleting ? onCancel : undefined} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" style={{ position: "relative" }}>
-        <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
-          <IconTrash className="w-5 h-5 text-red-600" />
-        </div>
-        <h2 className="text-base font-bold text-gray-800 text-center mb-1">Delete {tabLabel} Request</h2>
-        <p className="text-sm text-gray-500 text-center mb-1">Are you sure you want to delete</p>
-        <p className="text-sm font-semibold text-[#4B0082] text-center mb-4">{item.requestId} — {item.name}?</p>
-        <p className="text-xs text-red-500 text-center mb-5">This action cannot be undone.</p>
-        <div className="flex gap-3">
-          <button onClick={onCancel} disabled={isDeleting}
-            className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={isDeleting}
-            className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-60 flex items-center justify-center gap-2">
-            {isDeleting ? <><IconSpinner />Deleting…</> : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Reject Reason Modal (Profile Updates) ────────────────────
-// FIX: Separate modal for profile update rejection — collects reason before calling API
-type ProfileRejectModalProps = {
-  item: PendingProfileUpdate | null;
-  onConfirm: (reason: string) => void;
-  onCancel: () => void;
-  isLoading: boolean;
-};
-const ProfileRejectModal = ({ item, onConfirm, onCancel, isLoading }: ProfileRejectModalProps) => {
-  const [reason, setReason] = useState("");
-  const [error,  setError]  = useState(false);
-
-  // Reset state when modal opens with a new item
-  useEffect(() => {
-    if (item) { setReason(""); setError(false); }
-  }, [item]);
-
-  if (!item) return null;
-
-  const handleConfirm = () => {
-    if (!reason.trim()) { setError(true); return; }
-    onConfirm(reason.trim());
-  };
-
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
-    >
-      <div
-        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.50)", backdropFilter: "blur(4px)" }}
-        onClick={!isLoading ? onCancel : undefined}
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/50" 
+        onClick={!isDeleting ? onCancel : undefined} 
       />
-      <div
-        style={{ position: "relative", background: "white", borderRadius: "16px", boxShadow: "0 25px 60px rgba(0,0,0,0.2)", width: "100%", maxWidth: "440px", padding: "24px" }}
-      >
-        <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
-          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+      
+      {/* Modal - Proper width and styling */}
+      <div className="relative bg-white rounded-lg shadow-xl w-[400px] p-6">
+        {/* Icon */}
+        <div className="flex justify-center mb-4">
+          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
         </div>
-        <h2 className="text-base font-bold text-gray-800 text-center mb-1">Reject Profile Update</h2>
-        <p className="text-sm text-gray-500 text-center mb-1">Rejecting profile update for</p>
-        <p className="text-sm font-semibold text-[#4B0082] text-center mb-4">{item.tempSellerRequestId} — {item.sellerName}</p>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-          Rejection Reason <span className="text-red-500">*</span>
-        </label>
-        <textarea
-          rows={3}
-          value={reason}
-          onChange={e => { setReason(e.target.value); setError(false); }}
-          placeholder="e.g. Documents are not clear. Please upload higher resolution images."
-          className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 resize-none transition-all
-            ${error ? "border-red-400 focus:ring-red-400" : "border-gray-200 focus:ring-[#4B0082]"}`}
-          autoFocus
-        />
-        {error && <p className="text-red-500 text-xs mt-1">Please provide a rejection reason.</p>}
-        <div className="flex gap-3 mt-5">
-          <button onClick={onCancel} disabled={isLoading}
-            className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50">
+        
+        {/* Title */}
+        <h3 className="text-lg font-semibold text-center text-gray-900 mb-2">
+          Delete {tabLabel} Request
+        </h3>
+        
+        {/* Message */}
+        <p className="text-sm text-center text-gray-600 mb-1">
+          Are you sure you want to delete
+        </p>
+        <p className="text-sm font-semibold text-center text-[#4B0082] mb-3">
+          {item.requestId} — {item.name}?
+        </p>
+        <p className="text-xs text-center text-red-500 mb-6">
+          This action cannot be undone.
+        </p>
+        
+        {/* Buttons */}
+        <div className="flex gap-3">
+          <button 
+            onClick={onCancel} 
+            disabled={isDeleting}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
             Cancel
           </button>
-          <button onClick={handleConfirm} disabled={isLoading}
-            className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-60 flex items-center justify-center gap-2">
-            {isLoading ? <><IconSpinner />Rejecting…</> : "Reject"}
+          <button 
+            onClick={onConfirm} 
+            disabled={isDeleting}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isDeleting ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Deleting...
+              </>
+            ) : (
+              "Delete"
+            )}
           </button>
         </div>
       </div>
@@ -328,11 +292,6 @@ export default function AdminDashboard() {
   const [loadingPending,   setLoadingPending]   = useState(false);
   const [pendingError,     setPendingError]     = useState<string | null>(null);
   const [pendingFetchTick, setPendingFetchTick] = useState(0);
-
-  // FIX: Separate reject modal state — only opens after clicking Reject button
-  const [rejectTarget,    setRejectTarget]    = useState<PendingProfileUpdate | null>(null);
-  const [isRejecting,     setIsRejecting]     = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -373,26 +332,61 @@ export default function AdminDashboard() {
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
 
-  // ── Fetch pending profile updates ────────────────────────
+  // ── Fetch pending profile updates (FIXED) ─────────────────
   useEffect(() => {
     let cancelled = false;
     setLoadingPending(true);
     setPendingError(null);
-    fetch(PENDING_API_URL, { headers: { "X-API-Key": API_KEY } })
-      .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+    
+    fetch(PENDING_API_URL, { 
+      headers: { 
+        "X-API-Key": API_KEY,
+        "Content-Type": "application/json"
+      } 
+    })
+      .then(async r => { 
+        if (!r.ok) {
+          const errorText = await r.text();
+          throw new Error(`${r.status} ${r.statusText} - ${errorText}`);
+        }
+        return r.json(); 
+      })
       .then(json => {
         if (cancelled) return;
-        const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
-        setPendingUpdates(list.map(item => ({
-          pendingSellerId:     item.pendingSellerId   ?? item.id,
-          tempSellerRequestId: item.tempSellerRequestId ?? item.requestId ?? "—",
-          sellerName:          item.sellerName ?? item.tempSellerName ?? item.name ?? "—",
-          email:               item.email ?? item.tempSellerEmail ?? "—",
-          submittedAt:         item.submittedAt ?? item.createdAt ?? item.updatedAt ?? "—",
-          status:              item.status ?? "PENDING",
-        })));
+        
+        console.log("Pending updates API response:", json);
+        
+        // Handle different response structures
+        let list: any[] = [];
+        if (Array.isArray(json)) {
+          list = json;
+        } else if (Array.isArray(json.data)) {
+          list = json.data;
+        } else if (json.items && Array.isArray(json.items)) {
+          list = json.items;
+        } else if (json.requests && Array.isArray(json.requests)) {
+          list = json.requests;
+        }
+        
+        const mappedUpdates = list.map(item => ({
+          pendingSellerId: item.pendingSellerId ?? item.id ?? 0,
+          // Use tempSellerRequestId or generate one from sellerId
+          tempSellerRequestId: item.tempSellerRequestId ?? item.requestId ?? item.sellerId ?? `REQ-${item.pendingSellerId}`,
+          sellerName: item.sellerName ?? item.tempSellerName ?? item.name ?? "—",
+          email: item.email ?? item.tempSellerEmail ?? item.requestedBy ?? "—",
+          submittedAt: item.submittedAt ?? item.createdAt ?? item.updatedAt ?? new Date().toISOString(),
+          status: item.status ?? "PENDING",
+          sellerId: item.sellerId ?? item.tempSellerId ?? "",
+        }));
+        
+        setPendingUpdates(mappedUpdates);
       })
-      .catch(err => { if (!cancelled) setPendingError(err.message ?? "Failed to fetch pending updates"); })
+      .catch(err => { 
+        if (!cancelled) {
+          console.error("Failed to fetch pending updates:", err);
+          setPendingError(err.message ?? "Failed to fetch pending updates");
+        }
+      })
       .finally(() => { if (!cancelled) setLoadingPending(false); });
     return () => { cancelled = true; };
   }, [pendingFetchTick]);
@@ -425,62 +419,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // ── Approve profile update ────────────────────────────────
-  const handleApprove = async (item: PendingProfileUpdate) => {
-    setActionLoadingId(item.pendingSellerId);
-    try {
-      const res = await fetch(APPROVE_API(item.pendingSellerId), {
-        method: "POST",
-        headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message ?? `${res.status}`);
-      }
-      setPendingUpdates(prev => prev.filter(p => p.pendingSellerId !== item.pendingSellerId));
-      showToast(`${item.tempSellerRequestId} profile update approved.`, "success");
-      setFetchTick(t => t + 1);
-    } catch (err: any) {
-      showToast(`Approve failed: ${err.message ?? "unknown error"}`, "error");
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  // ── Reject profile update — FIX: now collects reason via modal first ──
-  const handleRejectClick = (item: PendingProfileUpdate) => {
-    setRejectTarget(item);
-  };
-
-  const handleRejectConfirm = async (reason: string) => {
-    if (!rejectTarget) return;
-    setIsRejecting(true);
-    try {
-      const res = await fetch(REJECT_API(rejectTarget.pendingSellerId), {
-        method: "POST",
-        headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pendingSellerId:  rejectTarget.pendingSellerId,
-          action:           "REJECT",
-          rejectionReason:  reason,
-          approvedBy:       APPROVED_BY,
-        }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.message ?? `${res.status}`);
-      }
-      setPendingUpdates(prev => prev.filter(p => p.pendingSellerId !== rejectTarget.pendingSellerId));
-      setRejectTarget(null);
-      showToast(`${rejectTarget.tempSellerRequestId} profile update rejected.`, "success");
-      setFetchTick(t => t + 1);
-    } catch (err: any) {
-      showToast(`Reject failed: ${err.message ?? "unknown error"}`, "error");
-    } finally {
-      setIsRejecting(false);
-    }
-  };
-
   const activeTabLabel = activeTab === "seller" ? "Seller" : activeTab === "buyer" ? "Buyer" : "Lab";
 
   const filtered = useMemo(() => {
@@ -508,6 +446,16 @@ export default function AdminDashboard() {
     router.push(`/RequestDetails/${item.requestId}?sellerId=${item.id}&entityType=${activeTab}`);
   };
 
+  const handlePendingRowClick = (item: PendingProfileUpdate) => {
+    router.push(
+      `/RequestDetails/${item.tempSellerRequestId}?` +
+      `sellerId=${item.pendingSellerId}&` +
+      `entityType=seller&` +
+      `sellerEmail=${encodeURIComponent(item.email)}&` +
+      `isPendingUpdate=true`
+    );
+  };
+
   return (
     <>
       <Header admin onLogout={() => router.push("/")} />
@@ -517,7 +465,13 @@ export default function AdminDashboard() {
         <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
           ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
           style={{ position: "fixed", top: 20, right: 20, zIndex: 99999 }}>
-          {toast.type === "success" ? <IconCheck /> : <IconClose className="w-4 h-4 text-red-600 shrink-0" />}
+          {toast.type === "success" ? (
+            <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <IconClose className="w-4 h-4 text-red-600 shrink-0" />
+          )}
           {toast.message}
         </div>
       )}
@@ -527,19 +481,11 @@ export default function AdminDashboard() {
         onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} isDeleting={isDeleting}
       />
 
-      {/* FIX: Profile reject modal — asks for reason before calling reject API */}
-      <ProfileRejectModal
-        item={rejectTarget}
-        onConfirm={handleRejectConfirm}
-        onCancel={() => setRejectTarget(null)}
-        isLoading={isRejecting}
-      />
-
       <main className="bg-[#F7F2FB] min-h-screen px-5 pb-10 pt-10">
         <div className="max-w-7xl mx-auto space-y-6">
 
           {/* ══════════════════════════════════════════════════
-              PROFILE UPDATES PANEL
+              PROFILE UPDATES PANEL (UPDATED UI - No Accept/Reject)
           ══════════════════════════════════════════════════ */}
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
             {/* Header */}
@@ -552,8 +498,13 @@ export default function AdminDashboard() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
+                      {/* {!loadingPending && pendingUpdates.length > 0 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700">
+                          {pendingUpdates.length}
+                        </span>
+                      )} */}
                     </div>
-                    <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — pending your review</p>
+                    <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — click to review</p>
                   </div>
                 </div>
                 <button
@@ -575,89 +526,65 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Table */}
+            {/* Table - Now matches main requests table UI */}
             <div className="px-8 pb-6">
               <div className="rounded-2xl border border-gray-100 overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-[#faf7ff] border-b border-gray-100">
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Sl. No</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Request ID</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Seller Name</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Email</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Submitted At (IST)</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Status</th>
-                        <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">Actions</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 w-16 whitespace-nowrap">Sl. No</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Request ID</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Seller Name</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Email</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Submitted At (IST)</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Status</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-50">
                       {loadingPending ? (
-                        <TableSkeleton cols={7} />
+                        <TableSkeleton cols={6} />
                       ) : pendingUpdates.length > 0 ? (
                         pendingUpdates.map((item, idx) => {
-                          const isActioning = actionLoadingId === item.pendingSellerId;
+                          const statusStyle = { 
+                            badge: "bg-yellow-50 text-yellow-700 ring-yellow-200", 
+                            dot: "bg-yellow-500" 
+                          };
+                          
                           return (
                             <tr
                               key={item.pendingSellerId}
-                              onClick={() => router.push(
-                                `/RequestDetails/${item.tempSellerRequestId}` +
-                                `?sellerId=${item.pendingSellerId}` +
-                                `&entityType=seller` +
-                                `&sellerEmail=${encodeURIComponent(item.email)}`
-                              )}
+                              onClick={() => handlePendingRowClick(item)}
                               className="hover:bg-[#faf7ff] transition-colors cursor-pointer group"
                             >
-                              <td className="px-5 py-3.5 text-gray-400 font-medium text-xs">{idx + 1}</td>
-                              <td className="px-5 py-3.5 whitespace-nowrap">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors underline underline-offset-2 decoration-violet-300">
+                              <td className="px-6 py-4 text-gray-400 font-medium text-xs">{idx + 1}</td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors">
                                   {item.tempSellerRequestId}
                                 </span>
                               </td>
-                              <td className="px-5 py-3.5 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
-                              <td className="px-5 py-3.5 text-gray-500 text-xs">{item.email}</td>
-                              <td className="px-5 py-3.5 text-gray-500 text-xs whitespace-nowrap tabular-nums">
+                              <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
+                              <td className="px-6 py-4">
+                                <a href={`mailto:${item.email}`} onClick={e => e.stopPropagation()}
+                                  className="text-gray-600 hover:text-[#4B0082] transition-colors">
+                                  {item.email}
+                                </a>
+                              </td>
+                              <td className="px-6 py-4 text-gray-500 text-xs whitespace-nowrap tabular-nums">
                                 {formatDateTimeIST(item.submittedAt)}
                               </td>
-                              <td className="px-5 py-3.5 whitespace-nowrap">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 bg-yellow-50 text-yellow-700 ring-yellow-200">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${statusStyle.badge}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusStyle.dot}`} />
                                   Pending Review
                                 </span>
-                              </td>
-                              <td className="px-5 py-3.5 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    disabled={isActioning}
-                                    onClick={() => handleApprove(item)}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all duration-150 disabled:opacity-50"
-                                  >
-                                    {isActioning ? <IconSpinner /> : (
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                    Accept
-                                  </button>
-                                  {/* FIX: Reject button now opens reason modal instead of calling API directly */}
-                                  <button
-                                    disabled={isActioning}
-                                    onClick={() => handleRejectClick(item)}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150 disabled:opacity-50"
-                                  >
-                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                    Reject
-                                  </button>
-                                </div>
                               </td>
                             </tr>
                           );
                         })
                       ) : !pendingError ? (
                         <tr>
-                          <td colSpan={7} className="px-5 py-12 text-center">
+                          <td colSpan={6} className="px-5 py-12 text-center">
                             <div className="flex flex-col items-center gap-2 text-gray-400">
                               <svg className="w-9 h-9 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
