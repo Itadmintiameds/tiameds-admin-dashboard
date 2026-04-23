@@ -105,6 +105,41 @@ const isPdfUrl = (url: string) =>
   /\.pdf(\?|$)/i.test(url) || url.toLowerCase().includes("pdf");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const extractDocumentId = (d: any): number | null => {
+  // The temp-seller API returns "DocumentsId" with capital D
+  // Try every known casing/naming variant
+  const raw =
+    d["DocumentsId"]            ??   // temp-seller response (capital D, plural)
+    d["documentsId"]            ??   // camelCase variant
+    d["documentId"]             ??   // singular camelCase
+    d["DocumentId"]             ??   // singular PascalCase
+    d["pendingSellerDocumentId"]??   // pending-seller response
+    d["id"]                     ??   // generic fallback
+    null;
+  const num = Number(raw);
+  return raw !== null && !isNaN(num) && num > 0 ? num : null;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const extractProductType = (d: any): { productTypeName: string; productTypeId: number } => {
+  // temp-seller API nests product type under "productTypes" (plural, single object — NOT an array)
+  // pending-seller API uses "productType" (singular)
+  const src = d.productTypes ?? d.productType ?? null;
+  return {
+    productTypeName:
+      d.productTypeName          ??
+      src?.productTypeName       ??
+      src?.name                  ??
+      "",
+    productTypeId:
+      d.productTypeId            ??
+      src?.productTypeId         ??
+      src?.id                    ??
+      0,
+  };
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const normalizeApiResponse = (raw: any): SellerData => ({
   pendingSellerId: raw.pendingSellerId ?? null,
   sellerId: raw.sellerId ?? null,
@@ -135,24 +170,29 @@ const normalizeApiResponse = (raw: any): SellerData => ({
     mobile:      raw.coordinator?.mobile      ?? "",
   },
   bankDetails: {
-    bankName:            raw.bankDetails?.bankName            ?? "",
-    branch:              raw.bankDetails?.branch              ?? "",
-    ifscCode:            raw.bankDetails?.ifscCode            ?? "",
-    accountNumber:       raw.bankDetails?.accountNumber       ?? "",
-    accountHolderName:   raw.bankDetails?.accountHolderName   ?? "",
-    bankDocumentFileUrl: raw.bankDetails?.bankDocumentFileUrl ?? "",
+    bankName:             raw.bankDetails?.bankName            ?? "",
+    branch:               raw.bankDetails?.branch              ?? "",
+    ifscCode:             raw.bankDetails?.ifscCode            ?? "",
+    accountNumber:        raw.bankDetails?.accountNumber       ?? "",
+    accountHolderName:    raw.bankDetails?.accountHolderName   ?? "",
+    bankDocumentFileUrl:  raw.bankDetails?.bankDocumentFileUrl ?? "",
     bankDocumentVerified: raw.bankDetails?.bankDocumentVerified ?? null,
   },
-  documents: (raw.documents ?? []).map((d: FlatDoc, idx: number) => ({
-    documentFileUrl:       d.documentFileUrl       ?? "",
-    documentNumber:        d.documentNumber        ?? "",
-    licenseIssueDate:      d.licenseIssueDate      ?? "",
-    licenseExpiryDate:     d.licenseExpiryDate     ?? "",
-    licenseIssuingAuthority: d.licenseIssuingAuthority ?? "",
-    productTypeName:       d.productTypeName       ?? "",
-    productTypeId:         d.productTypeId         ?? 0,
-    documentVerified:      d.documentVerified      ?? null,
-  })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  documents: (raw.documents ?? []).map((d: any) => {
+    const { productTypeName, productTypeId } = extractProductType(d);
+    return {
+      pendingSellerDocumentId: extractDocumentId(d),
+      documentFileUrl:         d.documentFileUrl         ?? "",
+      documentNumber:          d.documentNumber          ?? "",
+      licenseIssueDate:        d.licenseIssueDate        ?? "",
+      licenseExpiryDate:       d.licenseExpiryDate       ?? "",
+      licenseIssuingAuthority: d.licenseIssuingAuthority ?? "",
+      productTypeName,
+      productTypeId,
+      documentVerified: d.documentVerified ?? null,
+    };
+  }),
   productTypes: raw.productTypes ?? [],
   reviewHistories: raw.reviewHistories ?? [],
 });
@@ -165,7 +205,7 @@ const buildFileStates = (data: SellerData, decision: Decision): FileStateMap => 
     if (apiValue === true) return true;
     return null;
   };
-  const resolveViewed   = (verified: boolean | null): boolean => locked || verified !== null;
+  const resolveViewed = (verified: boolean | null): boolean => locked || verified !== null;
   const gstV  = resolveVerified(data.gstVerified, accepted);
   const bankV = resolveVerified(data.bankDetails?.bankDocumentVerified, accepted);
   const init: FileStateMap = {
@@ -174,7 +214,9 @@ const buildFileStates = (data: SellerData, decision: Decision): FileStateMap => 
   };
   data.documents?.forEach((doc, idx) => {
     const v = resolveVerified(doc.documentVerified, accepted);
-    init[`doc_${doc.productTypeId}_${idx}`] = { viewed: resolveViewed(v), verified: v };
+    // Use the real DB document ID so we can send it back on verify/reject
+    const keyId = doc.pendingSellerDocumentId ?? doc.productTypeId;
+    init[`doc_${keyId}_${idx}`] = { viewed: resolveViewed(v), verified: v };
   });
   return init;
 };
@@ -499,22 +541,22 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   const [lockedFileStates, setLockedFileStates] = useState<FileStateMap | null>(null);
   const [submittedDecision, setSubmittedDecision] = useState<Decision>(null);
 
-  const [modalOpen, setModalOpen]   = useState(false);
+  const [modalOpen, setModalOpen]     = useState(false);
   const [currentFile, setCurrentFile] = useState<{ url: string; label: string; fileKey: string } | null>(null);
 
-  const [adminComment, setAdminComment]       = useState("");
+  const [adminComment, setAdminComment]         = useState("");
   const [showCommentError, setShowCommentError] = useState(false);
-  const [toast, setToast]   = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast]     = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [actionModal, setActionModal] = useState<{ action: Decision; phase: ModalPhase; errorMessage?: string } | null>(null);
 
-  const [isPendingUpdate, setIsPendingUpdate]           = useState(false);
-  const [pendingSellerId, setPendingSellerId]           = useState<number | null>(null);
+  const [isPendingUpdate, setIsPendingUpdate]             = useState(false);
+  const [pendingSellerId, setPendingSellerId]             = useState<number | null>(null);
   const [profileRejectModalOpen, setProfileRejectModalOpen] = useState(false);
-  const [profileActionLoading, setProfileActionLoading] = useState(false);
+  const [profileActionLoading, setProfileActionLoading]   = useState(false);
 
-  const isLocked       = submittedDecision === "Accept" || submittedDecision === "Reject";
+  const isLocked         = submittedDecision === "Accept" || submittedDecision === "Reject";
   const isCorrectionMode = submittedDecision === "Correction";
-  const activeStates   = isLocked && lockedFileStates ? lockedFileStates : fileStates;
+  const activeStates     = isLocked && lockedFileStates ? lockedFileStates : fileStates;
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -599,8 +641,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     return s.verified ? { status: "Complete", error: false } : { status: "Rejected", error: true };
   }, [activeStates, isLocked]);
 
-  const allViewed  = useMemo(() => Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.viewed), [activeStates]);
-  const canAccept  = useMemo(() => allViewed && Object.values(activeStates).every(v => v.verified === true), [activeStates, allViewed]);
+  const allViewed      = useMemo(() => Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.viewed), [activeStates]);
+  const canAccept      = useMemo(() => allViewed && Object.values(activeStates).every(v => v.verified === true), [activeStates, allViewed]);
   const hasAnyRejected = useMemo(() => allViewed && Object.values(activeStates).some(v => v.verified === false), [activeStates, allViewed]);
 
   // ── Helpers for diff ──
@@ -641,17 +683,27 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
         if (verified) showToast("Bank doc verified ✔", "success");
       } else if (fileKey.startsWith("doc_")) {
-        const parts = fileKey.split("_");
-        const productTypeId = Number(parts[1]);
+        // Key format: doc_<documentId>_<idx>
+        // parts[1] is the real DocumentsId from the API response
+        const parts      = fileKey.split("_");
+        const documentId = Number(parts[1]);
+
+        if (!documentId || isNaN(documentId)) {
+          throw new Error("Could not resolve document ID — please refresh and try again.");
+        }
+
         res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/document`, {
-          method: "PATCH", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ productTypeId, documentVerified: String(verified) }),
+          method: "PATCH",
+          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ documentId, documentVerified: String(verified) }),
         });
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
         if (verified) showToast("Document verified ✔", "success");
       }
     } catch (e) {
-      if (verified) showToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+      // Rollback optimistic UI update on failure
+      setFileStates(prev => ({ ...prev, [fileKey]: { ...prev[fileKey], verified: null } }));
+      showToast(`Save failed: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }, [currentFile, isLocked, sellerId, showToast]);
 
@@ -1003,11 +1055,12 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                   />
 
                   {newData.documents?.map((doc, idx) => {
-                    const fileKey = `doc_${doc.productTypeId}_${idx}`;
+                    const keyId   = doc.pendingSellerDocumentId ?? doc.productTypeId;
+                    const fileKey = `doc_${keyId}_${idx}`;
                     const oldDoc  = oldData?.documents?.find(d => d.productTypeId === doc.productTypeId);
                     return (
                       <div key={fileKey} className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 pt-4 mt-1 border-t border-purple-50">
-                        <CompareItem label="Document Type" value={doc.productTypeName} />
+                        <CompareItem label="Document Type" value={doc.productTypeName || "—"} />
                         <CompareItem label="Document Number" value={doc.documentNumber}
                           showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(oldDoc.documentNumber, doc.documentNumber) : {})} />
                         <CompareItem label="Issuing Authority" value={doc.licenseIssuingAuthority}
@@ -1017,10 +1070,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                         <CompareItem label="Expiry Date" value={formatDate(doc.licenseExpiryDate)}
                           showDiff={isPendingUpdate} {...(isPendingUpdate && oldDoc ? diff(formatDate(oldDoc.licenseExpiryDate), formatDate(doc.licenseExpiryDate)) : {})} />
                         <CompareFileItem
-                          label={`License File — ${doc.productTypeName}`}
+                          label={`License File — ${doc.productTypeName || "Document"}`}
                           fileUrl={doc.documentFileUrl}
                           isLocked={isLocked}
-                          onView={() => handleViewFile(doc.documentFileUrl, `License File — ${doc.productTypeName}`, fileKey)}
+                          onView={() => handleViewFile(doc.documentFileUrl, `License File — ${doc.productTypeName || "Document"}`, fileKey)}
                           isViewed={activeStates[fileKey]?.viewed ?? false}
                           isVerified={activeStates[fileKey]?.verified ?? null}
                           showDiff={isPendingUpdate}
@@ -1074,7 +1127,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     error={!canAccept && !(isLocked && submittedDecision === "Accept")} />
                 </Section>
 
-                {/* ── Admin Decision Panel (same template for both flows) ── */}
+                {/* ── Admin Decision Panel ── */}
                 <div className="border border-purple-200 rounded-xl p-5">
                   <h2 className="text-lg font-bold text-[#2D0066] mb-4 pb-2 border-b border-purple-100">Admin Decision</h2>
 
@@ -1127,7 +1180,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     <div>
                       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
                       {!isPendingUpdate ? (
-                        // Seller Request: 3 actions
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <ActionButton action="Accept" label="Accept Request" disabled={!canAccept || !!actionModal || isLocked} onClick={() => handleAction("Accept")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
@@ -1137,7 +1189,6 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                         </div>
                       ) : (
-                        // Profile Update: 2 actions
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <ActionButton action="Accept" label="Accept Update"
                             disabled={!!actionModal || isLocked || profileActionLoading}
@@ -1164,7 +1215,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <svg className="w-14 h-14 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <p className="text-gray-500 font-medium text-sm">{!sellerId ? "No seller ID provided." : "Could not load seller details."}</p>  
+                <p className="text-gray-500 font-medium text-sm">{!sellerId ? "No seller ID provided." : "Could not load seller details."}</p>
                 <p className="text-gray-400 text-xs mt-1">Please go back and try again.</p>
               </div>
             )}
