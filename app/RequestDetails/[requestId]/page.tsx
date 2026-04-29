@@ -450,7 +450,7 @@ function CompareFileItem({ label, fileUrl, onView, isViewed, isVerified, isLocke
         </button>
         {isVerified === true  && <span className="text-green-600 text-xs font-semibold">✔ Verified</span>}
         {isVerified === false && !isLocked && <span className="text-red-500 text-xs font-semibold">✗ Rejected</span>}
-        {isVerified === null  && isViewed && !isLocked && <span className="text-amber-500 text-xs font-semibold">Pending decision</span>}
+        {isVerified === null && isViewed && !isLocked && !showDiff && <span className="text-amber-500 text-xs font-semibold">Pending decision</span>}
         {isLocked && isVerified === true && (
           <span className="inline-flex items-center gap-1 text-gray-400 text-xs italic">
             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>Locked
@@ -1116,7 +1116,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                 </Section>
 
                 {/* ── Validation Summary ── */}
-                <Section title="Validation Summary">
+                {!isProfileUpdate && <Section title="Validation Summary">
                   <StatusItem label="Company Info" status="Complete" highlight />
                   <StatusItem label="Verification" status="Complete" highlight />
                   <StatusItem label="Documents" status={documentsVerified.status} error={documentsVerified.error} highlight={!documentsVerified.error} />
@@ -1125,7 +1125,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     status={isLocked && submittedDecision === "Accept" ? "Closed" : isLocked && submittedDecision === "Reject" ? "Rejected" : isCorrectionMode ? "Corrections Needed" : canAccept ? "Ready to Submit" : "Pending Verification"}
                     highlight={canAccept || (isLocked && submittedDecision === "Accept")}
                     error={!canAccept && !(isLocked && submittedDecision === "Accept")} />
-                </Section>
+                </Section>}
 
                 {/* ── Admin Decision Panel ── */}
                 <div className="border border-purple-200 rounded-xl p-5">
