@@ -18,6 +18,7 @@ type PendingProfileUpdate = {
   submittedAt: string;
   status: string;
   sellerId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
 
@@ -131,12 +132,6 @@ const IconTrash = ({ className = "w-3.5 h-3.5 flex-shrink-0" }: { className?: st
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
-const IconSpinner = () => (
-  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-  </svg>
-);
 const IconWarning = () => (
   <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -180,32 +175,24 @@ const TableSkeleton = ({ cols = 7 }: { cols?: number }) => (
         {Array.from({ length: cols }, (_, j) => (
           <td key={j} className="px-5 py-3.5">
             <div className="h-3.5 bg-gray-100 rounded-full animate-pulse" style={{ width: `${45 + j * 8}%` }} />
-           </td>
+          </td>
         ))}
-       </tr>
+      </tr>
     ))}
   </>
 );
 
-// ─── Delete Modal (Fixed) ─────────────────────────────────────────────
+// ─── Delete Modal ─────────────────────────────────────────────
 type DeleteModalProps = {
   item: Request | null; tabLabel: string;
   onConfirm: () => void; onCancel: () => void; isDeleting: boolean;
 };
 const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: DeleteModalProps) => {
   if (!item) return null;
-  
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50" 
-        onClick={!isDeleting ? onCancel : undefined} 
-      />
-      
-      {/* Modal - Proper width and styling */}
+      <div className="absolute inset-0 bg-black/50" onClick={!isDeleting ? onCancel : undefined} />
       <div className="relative bg-white rounded-lg shadow-xl w-[400px] p-6">
-        {/* Icon */}
         <div className="flex justify-center mb-4">
           <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
             <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -213,37 +200,17 @@ const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: Delete
             </svg>
           </div>
         </div>
-        
-        {/* Title */}
-        <h3 className="text-lg font-semibold text-center text-gray-900 mb-2">
-          Delete {tabLabel} Request
-        </h3>
-        
-        {/* Message */}
-        <p className="text-sm text-center text-gray-600 mb-1">
-          Are you sure you want to delete
-        </p>
-        <p className="text-sm font-semibold text-center text-[#4B0082] mb-3">
-          {item.requestId} — {item.name}?
-        </p>
-        <p className="text-xs text-center text-red-500 mb-6">
-          This action cannot be undone.
-        </p>
-        
-        {/* Buttons */}
+        <h3 className="text-lg font-semibold text-center text-gray-900 mb-2">Delete {tabLabel} Request</h3>
+        <p className="text-sm text-center text-gray-600 mb-1">Are you sure you want to delete</p>
+        <p className="text-sm font-semibold text-center text-[#4B0082] mb-3">{item.requestId} — {item.name}?</p>
+        <p className="text-xs text-center text-red-500 mb-6">This action cannot be undone.</p>
         <div className="flex gap-3">
-          <button 
-            onClick={onCancel} 
-            disabled={isDeleting}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-          >
+          <button onClick={onCancel} disabled={isDeleting}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
             Cancel
           </button>
-          <button 
-            onClick={onConfirm} 
-            disabled={isDeleting}
-            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
+          <button onClick={onConfirm} disabled={isDeleting}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {isDeleting ? (
               <>
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -252,9 +219,7 @@ const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: Delete
                 </svg>
                 Deleting...
               </>
-            ) : (
-              "Delete"
-            )}
+            ) : "Delete"}
           </button>
         </div>
       </div>
@@ -281,13 +246,13 @@ export default function AdminDashboard() {
   const [sellerError,    setSellerError]    = useState<string | null>(null);
   const [fetchTick,      setFetchTick]      = useState(0);
 
-  const [buyers, setBuyers] = useState<Request[]>(DEMO_BUYERS);
-  const [labs,   setLabs]   = useState<Request[]>(DEMO_LABS);
+  const [buyers] = useState<Request[]>(DEMO_BUYERS);
+  const [labs]   = useState<Request[]>(DEMO_LABS);
 
   const [deleteTarget, setDeleteTarget] = useState<Request | null>(null);
   const [isDeleting,   setIsDeleting]   = useState(false);
 
-  // ── Profile Updates state ─────────────────────────────────
+  // ── Pending profile updates ───────────────────────────────
   const [pendingUpdates,   setPendingUpdates]   = useState<PendingProfileUpdate[]>([]);
   const [loadingPending,   setLoadingPending]   = useState(false);
   const [pendingError,     setPendingError]     = useState<string | null>(null);
@@ -317,6 +282,7 @@ export default function AdminDashboard() {
       .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
       .then(json => {
         if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
         setSellers(list.map(item => ({
           id:        item.tempSellerId,
@@ -332,61 +298,42 @@ export default function AdminDashboard() {
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
 
-  // ── Fetch pending profile updates (FIXED) ─────────────────
+  // Fetch pending profile updates
   useEffect(() => {
     let cancelled = false;
     setLoadingPending(true);
     setPendingError(null);
-    
-    fetch(PENDING_API_URL, { 
-      headers: { 
-        "X-API-Key": API_KEY,
-        "Content-Type": "application/json"
-      } 
-    })
-      .then(async r => { 
+    fetch(PENDING_API_URL, { headers: { "X-API-Key": API_KEY } })
+      .then(async r => {
         if (!r.ok) {
           const errorText = await r.text();
-          throw new Error(`${r.status} ${r.statusText} - ${errorText}`);
+          throw new Error(`${r.status} ${r.statusText}${errorText ? ` — ${errorText}` : ""}`);
         }
-        return r.json(); 
+        return r.json();
       })
       .then(json => {
         if (cancelled) return;
-        
-        console.log("Pending updates API response:", json);
-        
-        // Handle different response structures
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let list: any[] = [];
-        if (Array.isArray(json)) {
-          list = json;
-        } else if (Array.isArray(json.data)) {
-          list = json.data;
-        } else if (json.items && Array.isArray(json.items)) {
-          list = json.items;
-        } else if (json.requests && Array.isArray(json.requests)) {
-          list = json.requests;
-        }
-        
-        const mappedUpdates = list.map(item => ({
-          pendingSellerId: item.pendingSellerId ?? item.id ?? 0,
-          // Use tempSellerRequestId or generate one from sellerId
-          tempSellerRequestId: item.tempSellerRequestId ?? item.requestId ?? item.sellerId ?? `REQ-${item.pendingSellerId}`,
-          sellerName: item.sellerName ?? item.tempSellerName ?? item.name ?? "—",
-          email: item.email ?? item.tempSellerEmail ?? item.requestedBy ?? "—",
-          submittedAt: item.submittedAt ?? item.createdAt ?? item.updatedAt ?? new Date().toISOString(),
-          status: item.status ?? "PENDING",
-          sellerId: item.sellerId ?? item.tempSellerId ?? "",
-        }));
-        
-        setPendingUpdates(mappedUpdates);
+        if (Array.isArray(json))              list = json;
+        else if (Array.isArray(json.data))    list = json.data;
+        else if (Array.isArray(json.items))   list = json.items;
+        else if (Array.isArray(json.requests)) list = json.requests;
+
+        setPendingUpdates(
+          list.map(item => ({
+            pendingSellerId:     item.pendingSellerId     ?? item.id                             ?? 0,
+            tempSellerRequestId: item.tempSellerRequestId ?? item.requestId ?? item.sellerId
+                                   ?? `REQ-${item.pendingSellerId ?? item.id}`,
+            sellerName:  item.sellerName  ?? item.tempSellerName ?? item.name ?? "—",
+            email:       item.email       ?? item.tempSellerEmail ?? item.requestedBy ?? "—",
+            submittedAt: item.submittedAt ?? item.createdAt       ?? item.updatedAt   ?? new Date().toISOString(),
+            status:      item.status      ?? "PENDING",
+            sellerId:    item.sellerId    ?? item.tempSellerId    ?? "",
+          }))
+        );
       })
-      .catch(err => { 
-        if (!cancelled) {
-          console.error("Failed to fetch pending updates:", err);
-          setPendingError(err.message ?? "Failed to fetch pending updates");
-        }
-      })
+      .catch(err => { if (!cancelled) setPendingError(err.message ?? "Failed to fetch pending updates"); })
       .finally(() => { if (!cancelled) setLoadingPending(false); });
     return () => { cancelled = true; };
   }, [pendingFetchTick]);
@@ -406,14 +353,11 @@ export default function AdminDashboard() {
       const url = DELETE_API[activeTab](deleteTarget.id);
       const res = await fetch(url, { method: "DELETE", headers: { "X-API-Key": API_KEY } });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const setters: Record<RequestType, React.Dispatch<React.SetStateAction<Request[]>>> = {
-        seller: setSellers, buyer: setBuyers, lab: setLabs,
-      };
-      setters[activeTab](prev => prev.filter(r => r.id !== deleteTarget.id));
+      if (activeTab === "seller") setSellers(prev => prev.filter(r => r.id !== deleteTarget.id));
       setDeleteTarget(null);
       showToast(`${deleteTarget.requestId} deleted successfully.`, "success");
-    } catch (err: any) {
-      showToast(`Failed to delete: ${err.message ?? "unknown error"}`, "error");
+    } catch (err: unknown) {
+      showToast(`Failed to delete: ${err instanceof Error ? err.message : "unknown error"}`, "error");
     } finally {
       setIsDeleting(false);
     }
@@ -442,18 +386,31 @@ export default function AdminDashboard() {
   const isLoading  = activeTab === "seller" && loadingSellers;
   const hasError   = activeTab === "seller" && !!sellerError;
 
+  // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
     router.push(`/RequestDetails/${item.requestId}?sellerId=${item.id}&entityType=${activeTab}`);
   };
 
+  /**
+   * FIX: Pending profile-update row navigation.
+   *
+   * RequestDetails detects a profile-update by checking:
+   *   entityType === "seller"  AND  isPendingUpdate === "true"  AND  sellerId (pendingSellerId)
+   *
+   * We pass:
+   *   - sellerId   = pendingSellerId   (so RequestDetails fetches /admin/seller-requests/pending/:id)
+   *   - entityType = "seller"
+   *   - isPendingUpdate = "true"       ← the critical flag that was missing / inconsistent
+   *   - sellerEmail                    ← kept for any downstream email usage
+   */
   const handlePendingRowClick = (item: PendingProfileUpdate) => {
-    router.push(
-      `/RequestDetails/${item.tempSellerRequestId}?` +
-      `sellerId=${item.pendingSellerId}&` +
-      `entityType=seller&` +
-      `sellerEmail=${encodeURIComponent(item.email)}&` +
-      `isPendingUpdate=true`
-    );
+    const params = new URLSearchParams({
+      sellerId:        String(item.pendingSellerId),
+      entityType:      "seller",
+      isPendingUpdate: "true",
+      sellerEmail:     item.email,
+    });
+    router.push(`/RequestDetails/${item.tempSellerRequestId}?${params.toString()}`);
   };
 
   return (
@@ -462,9 +419,11 @@ export default function AdminDashboard() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
-          ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
-          style={{ position: "fixed", top: 20, right: 20, zIndex: 99999 }}>
+        <div
+          className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
+            ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
+          style={{ position: "fixed", top: 20, right: 20, zIndex: 99999 }}
+        >
           {toast.type === "success" ? (
             <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -485,10 +444,9 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto space-y-6">
 
           {/* ══════════════════════════════════════════════════
-              PROFILE UPDATES PANEL (UPDATED UI - No Accept/Reject)
+              SELLER PROFILE UPDATES PANEL
           ══════════════════════════════════════════════════ */}
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
-            {/* Header */}
             <div className="px-8 pt-6 pb-0">
               <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
                 <div className="flex items-center gap-3">
@@ -496,14 +454,7 @@ export default function AdminDashboard() {
                     <IconUser />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
-                      {/* {!loadingPending && pendingUpdates.length > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700">
-                          {pendingUpdates.length}
-                        </span>
-                      )} */}
-                    </div>
+                    <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
                     <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — click to review</p>
                   </div>
                 </div>
@@ -518,7 +469,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Error */}
             {pendingError && (
               <div className="mx-8 mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                 <IconWarning />
@@ -526,7 +476,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Table - Now matches main requests table UI */}
             <div className="px-8 pb-6">
               <div className="rounded-2xl border border-gray-100 overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
                 <div className="overflow-x-auto">
@@ -545,43 +494,36 @@ export default function AdminDashboard() {
                       {loadingPending ? (
                         <TableSkeleton cols={6} />
                       ) : pendingUpdates.length > 0 ? (
-                        pendingUpdates.map((item, idx) => {
-                          const statusStyle = { 
-                            badge: "bg-yellow-50 text-yellow-700 ring-yellow-200", 
-                            dot: "bg-yellow-500" 
-                          };
-                          
-                          return (
-                            <tr
-                              key={item.pendingSellerId}
-                              onClick={() => handlePendingRowClick(item)}
-                              className="hover:bg-[#faf7ff] transition-colors cursor-pointer group"
-                            >
-                              <td className="px-6 py-4 text-gray-400 font-medium text-xs">{idx + 1}</td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors">
-                                  {item.tempSellerRequestId}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
-                              <td className="px-6 py-4">
-                                <a href={`mailto:${item.email}`} onClick={e => e.stopPropagation()}
-                                  className="text-gray-600 hover:text-[#4B0082] transition-colors">
-                                  {item.email}
-                                </a>
-                              </td>
-                              <td className="px-6 py-4 text-gray-500 text-xs whitespace-nowrap tabular-nums">
-                                {formatDateTimeIST(item.submittedAt)}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${statusStyle.badge}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusStyle.dot}`} />
-                                  Pending Review
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
+                        pendingUpdates.map((item, idx) => (
+                          <tr
+                            key={item.pendingSellerId}
+                            onClick={() => handlePendingRowClick(item)}
+                            className="hover:bg-[#faf7ff] transition-colors cursor-pointer group"
+                          >
+                            <td className="px-6 py-4 text-gray-400 font-medium text-xs">{idx + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors">
+                                {item.tempSellerRequestId}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
+                            <td className="px-6 py-4">
+                              <a href={`mailto:${item.email}`} onClick={e => e.stopPropagation()}
+                                className="text-gray-600 hover:text-[#4B0082] transition-colors">
+                                {item.email}
+                              </a>
+                            </td>
+                            <td className="px-6 py-4 text-gray-500 text-xs whitespace-nowrap tabular-nums">
+                              {formatDateTimeIST(item.submittedAt)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 bg-yellow-50 text-yellow-700 ring-yellow-200">
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-yellow-500" />
+                                Pending Review
+                              </span>
+                            </td>
+                          </tr>
+                        ))
                       ) : !pendingError ? (
                         <tr>
                           <td colSpan={6} className="px-5 py-12 text-center">
@@ -663,7 +605,6 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Error banner */}
               {hasError && (
                 <div className="mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                   <IconWarning />
