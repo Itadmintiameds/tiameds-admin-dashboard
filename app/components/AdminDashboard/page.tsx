@@ -10,10 +10,23 @@ type SortField   = "requestId" | "name" | "email" | "date" | "status";
 type SortOrder   = "asc" | "desc";
 type Request     = { id: number; requestId: string; name: string; email: string; date: string; status: string };
 
+type PendingProfileUpdate = {
+  pendingSellerId: number;
+  tempSellerRequestId: string;
+  sellerName: string;
+  email: string;
+  submittedAt: string;
+  status: string;
+  sellerId: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+};
+
 // ─── Constants ────────────────────────────────────────────────
-const API_URL   = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
-const API_KEY   = "YOUR_API_KEY";
-const PAGE_SIZE = 10;
+const API_URL         = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
+const PENDING_API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/admin/seller-requests/pending";
+const API_KEY         = "YOUR_API_KEY";
+const PAGE_SIZE       = 10;
 
 const DELETE_API: Record<RequestType, (id: number) => string> = {
   seller: (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers/both/${id}`,
@@ -30,11 +43,11 @@ const STATUS_MAP: Record<string, string> = {
 };
 
 const STATUS_STYLES: Record<string, { badge: string; dot: string }> = {
-  "Open":               { badge: "bg-yellow-50 text-yellow-700 ring-yellow-200",    dot: "bg-yellow-500"  },
-  "Closed":             { badge: "bg-green-50 text-green-700 ring-green-200",       dot: "bg-green-500"   },
-  "Rejected":           { badge: "bg-red-50 text-red-700 ring-red-200",             dot: "bg-red-500"     },
-  "Corrections Needed": { badge: "bg-amber-50 text-amber-700 ring-amber-200",       dot: "bg-amber-500"   },
-  "In Progress":        { badge: "bg-blue-50 text-blue-700 ring-blue-200",          dot: "bg-blue-500"    },
+  "Open":               { badge: "bg-yellow-50 text-yellow-700 ring-yellow-200",  dot: "bg-yellow-500"  },
+  "Closed":             { badge: "bg-green-50 text-green-700 ring-green-200",     dot: "bg-green-500"   },
+  "Rejected":           { badge: "bg-red-50 text-red-700 ring-red-200",           dot: "bg-red-500"     },
+  "Corrections Needed": { badge: "bg-amber-50 text-amber-700 ring-amber-200",     dot: "bg-amber-500"   },
+  "In Progress":        { badge: "bg-blue-50 text-blue-700 ring-blue-200",        dot: "bg-blue-500"    },
 };
 const DEFAULT_STYLE = { badge: "bg-gray-50 text-gray-600 ring-gray-200", dot: "bg-gray-400" };
 
@@ -72,9 +85,20 @@ const normalizeStatus = (raw: string) => STATUS_MAP[raw?.toUpperCase()] ?? raw;
 
 const formatDate = (s: string): string => {
   if (!s || s === "—") return "—";
-  const d = new Date(s);
+  const d = new Date(s.includes("T") && !s.endsWith("Z") ? s + "Z" : s);
   if (isNaN(d.getTime())) return s;
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`;
+};
+
+const formatDateTimeIST = (s: string): string => {
+  if (!s || s === "—") return "—";
+  const d = new Date(s.includes("T") && !s.endsWith("Z") ? s + "Z" : s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
 };
 
 const getPageNumbers = (current: number, total: number): (number | "...")[] => {
@@ -87,53 +111,45 @@ const getPageNumbers = (current: number, total: number): (number | "...")[] => {
   }, []);
 };
 
-// ─── Reusable SVG Icons ───────────────────────────────────────
+// ─── Icons ────────────────────────────────────────────────────
 const IconSearch = () => (
   <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
   </svg>
 );
-
 const IconClose = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
-
 const IconChevronDown = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
   </svg>
 );
-
 const IconTrash = ({ className = "w-3.5 h-3.5 flex-shrink-0" }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
-
-const IconSpinner = () => (
-  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-  </svg>
-);
-
 const IconWarning = () => (
   <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
   </svg>
 );
-
 const IconEmpty = () => (
   <svg className="w-9 h-9 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
-
-const IconCheck = () => (
-  <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+const IconUser = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
+const IconRefresh = ({ className = "w-3.5 h-3.5" }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
 
@@ -141,12 +157,7 @@ const IconCheck = () => (
 const SortIcon = ({ field, sortField, sortOrder }: { field: SortField; sortField: SortField; sortOrder: SortOrder }) => {
   const isActive = sortField === field;
   return (
-    <svg
-      className={`w-3.5 h-3.5 ml-1 flex-shrink-0 ${isActive ? "text-[#4B0082]" : "text-gray-300"}`}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
+    <svg className={`w-3.5 h-3.5 ml-1 flex-shrink-0 ${isActive ? "text-[#4B0082]" : "text-gray-300"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       {isActive ? (
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sortOrder === "asc" ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
       ) : (
@@ -157,11 +168,11 @@ const SortIcon = ({ field, sortField, sortOrder }: { field: SortField; sortField
 };
 
 // ─── Table Skeleton ───────────────────────────────────────────
-const TableSkeleton = () => (
+const TableSkeleton = ({ cols = 7 }: { cols?: number }) => (
   <>
-    {Array.from({ length: 6 }, (_, i) => (
+    {Array.from({ length: 5 }, (_, i) => (
       <tr key={i} className="border-b border-gray-50">
-        {Array.from({ length: 7 }, (_, j) => (
+        {Array.from({ length: cols }, (_, j) => (
           <td key={j} className="px-5 py-3.5">
             <div className="h-3.5 bg-gray-100 rounded-full animate-pulse" style={{ width: `${45 + j * 8}%` }} />
           </td>
@@ -173,40 +184,42 @@ const TableSkeleton = () => (
 
 // ─── Delete Modal ─────────────────────────────────────────────
 type DeleteModalProps = {
-  item: Request | null;
-  tabLabel: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  isDeleting: boolean;
+  item: Request | null; tabLabel: string;
+  onConfirm: () => void; onCancel: () => void; isDeleting: boolean;
 };
-
 const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: DeleteModalProps) => {
   if (!item) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={!isDeleting ? onCancel : undefined} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <div className="flex items-center justify-center w-11 h-11 bg-red-100 rounded-full mx-auto mb-4">
-          <IconTrash className="w-5 h-5 text-red-600" />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ position: "fixed", inset: 0, zIndex: 9999 }}>
+      <div className="absolute inset-0 bg-black/50" onClick={!isDeleting ? onCancel : undefined} />
+      <div className="relative bg-white rounded-lg shadow-xl w-[400px] p-6">
+        <div className="flex justify-center mb-4">
+          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </div>
         </div>
-        <h2 className="text-base font-bold text-gray-800 text-center mb-1">Delete {tabLabel} Request</h2>
-        <p className="text-sm text-gray-500 text-center mb-1">Are you sure you want to delete</p>
-        <p className="text-sm font-semibold text-[#4B0082] text-center mb-4">{item.requestId} — {item.name}?</p>
-        <p className="text-xs text-red-500 text-center mb-5">This action cannot be undone.</p>
+        <h3 className="text-lg font-semibold text-center text-gray-900 mb-2">Delete {tabLabel} Request</h3>
+        <p className="text-sm text-center text-gray-600 mb-1">Are you sure you want to delete</p>
+        <p className="text-sm font-semibold text-center text-[#4B0082] mb-3">{item.requestId} — {item.name}?</p>
+        <p className="text-xs text-center text-red-500 mb-6">This action cannot be undone.</p>
         <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            disabled={isDeleting}
-            className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50"
-          >
+          <button onClick={onCancel} disabled={isDeleting}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
             Cancel
           </button>
-          <button
-            onClick={onConfirm}
-            disabled={isDeleting}
-            className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-all disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-            {isDeleting ? <><IconSpinner />Deleting…</> : "Delete"}
+          <button onClick={onConfirm} disabled={isDeleting}
+            className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {isDeleting ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Deleting...
+              </>
+            ) : "Delete"}
           </button>
         </div>
       </div>
@@ -233,11 +246,17 @@ export default function AdminDashboard() {
   const [sellerError,    setSellerError]    = useState<string | null>(null);
   const [fetchTick,      setFetchTick]      = useState(0);
 
-  const [buyers, setBuyers] = useState<Request[]>(DEMO_BUYERS);
-  const [labs,   setLabs]   = useState<Request[]>(DEMO_LABS);
+  const [buyers] = useState<Request[]>(DEMO_BUYERS);
+  const [labs]   = useState<Request[]>(DEMO_LABS);
 
   const [deleteTarget, setDeleteTarget] = useState<Request | null>(null);
   const [isDeleting,   setIsDeleting]   = useState(false);
+
+  // ── Pending profile updates ───────────────────────────────
+  const [pendingUpdates,   setPendingUpdates]   = useState<PendingProfileUpdate[]>([]);
+  const [loadingPending,   setLoadingPending]   = useState(false);
+  const [pendingError,     setPendingError]     = useState<string | null>(null);
+  const [pendingFetchTick, setPendingFetchTick] = useState(0);
 
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
@@ -248,7 +267,7 @@ export default function AdminDashboard() {
 
   // Refetch on window focus
   useEffect(() => {
-    const onFocus = () => setFetchTick(t => t + 1);
+    const onFocus = () => { setFetchTick(t => t + 1); setPendingFetchTick(t => t + 1); };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
@@ -259,11 +278,11 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingSellers(true);
     setSellerError(null);
-
     fetch(API_URL, { headers: { "X-API-Key": API_KEY } })
       .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
       .then(json => {
         if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
         setSellers(list.map(item => ({
           id:        item.tempSellerId,
@@ -276,9 +295,48 @@ export default function AdminDashboard() {
       })
       .catch(err => { if (!cancelled) setSellerError(err.message ?? "Failed to fetch sellers"); })
       .finally(() => { if (!cancelled) setLoadingSellers(false); });
-
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
+
+  // Fetch pending profile updates
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingPending(true);
+    setPendingError(null);
+    fetch(PENDING_API_URL, { headers: { "X-API-Key": API_KEY } })
+      .then(async r => {
+        if (!r.ok) {
+          const errorText = await r.text();
+          throw new Error(`${r.status} ${r.statusText}${errorText ? ` — ${errorText}` : ""}`);
+        }
+        return r.json();
+      })
+      .then(json => {
+        if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let list: any[] = [];
+        if (Array.isArray(json))              list = json;
+        else if (Array.isArray(json.data))    list = json.data;
+        else if (Array.isArray(json.items))   list = json.items;
+        else if (Array.isArray(json.requests)) list = json.requests;
+
+        setPendingUpdates(
+          list.map(item => ({
+            pendingSellerId:     item.pendingSellerId     ?? item.id                             ?? 0,
+            tempSellerRequestId: item.tempSellerRequestId ?? item.requestId ?? item.sellerId
+                                   ?? `REQ-${item.pendingSellerId ?? item.id}`,
+            sellerName:  item.sellerName  ?? item.tempSellerName ?? item.name ?? "—",
+            email:       item.email       ?? item.tempSellerEmail ?? item.requestedBy ?? "—",
+            submittedAt: item.submittedAt ?? item.createdAt       ?? item.updatedAt   ?? new Date().toISOString(),
+            status:      item.status      ?? "PENDING",
+            sellerId:    item.sellerId    ?? item.tempSellerId    ?? "",
+          }))
+        );
+      })
+      .catch(err => { if (!cancelled) setPendingError(err.message ?? "Failed to fetch pending updates"); })
+      .finally(() => { if (!cancelled) setLoadingPending(false); });
+    return () => { cancelled = true; };
+  }, [pendingFetchTick]);
 
   // Reset pagination when filters change
   useEffect(() => { setCurrentPage(1); }, [activeTab, searchTerm, statusFilter, sortField, sortOrder]);
@@ -295,15 +353,11 @@ export default function AdminDashboard() {
       const url = DELETE_API[activeTab](deleteTarget.id);
       const res = await fetch(url, { method: "DELETE", headers: { "X-API-Key": API_KEY } });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-
-      const setters: Record<RequestType, React.Dispatch<React.SetStateAction<Request[]>>> = {
-        seller: setSellers, buyer: setBuyers, lab: setLabs,
-      };
-      setters[activeTab](prev => prev.filter(r => r.id !== deleteTarget.id));
+      if (activeTab === "seller") setSellers(prev => prev.filter(r => r.id !== deleteTarget.id));
       setDeleteTarget(null);
       showToast(`${deleteTarget.requestId} deleted successfully.`, "success");
-    } catch (err: any) {
-      showToast(`Failed to delete: ${err.message ?? "unknown error"}`, "error");
+    } catch (err: unknown) {
+      showToast(`Failed to delete: ${err instanceof Error ? err.message : "unknown error"}`, "error");
     } finally {
       setIsDeleting(false);
     }
@@ -332,9 +386,31 @@ export default function AdminDashboard() {
   const isLoading  = activeTab === "seller" && loadingSellers;
   const hasError   = activeTab === "seller" && !!sellerError;
 
-  // ── Navigate to detail page — include entityType in URL ──
+  // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
     router.push(`/RequestDetails/${item.requestId}?sellerId=${item.id}&entityType=${activeTab}`);
+  };
+
+  /**
+   * FIX: Pending profile-update row navigation.
+   *
+   * RequestDetails detects a profile-update by checking:
+   *   entityType === "seller"  AND  isPendingUpdate === "true"  AND  sellerId (pendingSellerId)
+   *
+   * We pass:
+   *   - sellerId   = pendingSellerId   (so RequestDetails fetches /admin/seller-requests/pending/:id)
+   *   - entityType = "seller"
+   *   - isPendingUpdate = "true"       ← the critical flag that was missing / inconsistent
+   *   - sellerEmail                    ← kept for any downstream email usage
+   */
+  const handlePendingRowClick = (item: PendingProfileUpdate) => {
+    const params = new URLSearchParams({
+      sellerId:        String(item.pendingSellerId),
+      entityType:      "seller",
+      isPendingUpdate: "true",
+      sellerEmail:     item.email,
+    });
+    router.push(`/RequestDetails/${item.tempSellerRequestId}?${params.toString()}`);
   };
 
   return (
@@ -343,23 +419,133 @@ export default function AdminDashboard() {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
-          ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}>
-          {toast.type === "success" ? <IconCheck /> : <IconClose className="w-4 h-4 text-red-600 shrink-0" />}
+        <div
+          className={`fixed top-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
+            ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
+          style={{ position: "fixed", top: 20, right: 20, zIndex: 99999 }}
+        >
+          {toast.type === "success" ? (
+            <svg className="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <IconClose className="w-4 h-4 text-red-600 shrink-0" />
+          )}
           {toast.message}
         </div>
       )}
 
       <DeleteModal
-        item={deleteTarget}
-        tabLabel={activeTabLabel}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteTarget(null)}
-        isDeleting={isDeleting}
+        item={deleteTarget} tabLabel={activeTabLabel}
+        onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} isDeleting={isDeleting}
       />
 
       <main className="bg-[#F7F2FB] min-h-screen px-5 pb-10 pt-10">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-7xl mx-auto space-y-6">
+
+          {/* ══════════════════════════════════════════════════
+              SELLER PROFILE UPDATES PANEL
+          ══════════════════════════════════════════════════ */}
+          <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="px-8 pt-6 pb-0">
+              <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center">
+                    <IconUser />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
+                    <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — click to review</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPendingFetchTick(t => t + 1)}
+                  disabled={loadingPending}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-medium text-gray-500 hover:bg-[#f0ebff] hover:border-[#4B0082] hover:text-[#4B0082] transition-all disabled:opacity-50"
+                >
+                  <IconRefresh className={`w-3.5 h-3.5 ${loadingPending ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {pendingError && (
+              <div className="mx-8 mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                <IconWarning />
+                <span><strong>Failed to load:</strong> {pendingError}</span>
+              </div>
+            )}
+
+            <div className="px-8 pb-6">
+              <div className="rounded-2xl border border-gray-100 overflow-hidden shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-[#faf7ff] border-b border-gray-100">
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 w-16 whitespace-nowrap">Sl. No</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Request ID</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Seller Name</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Email</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Submitted At (IST)</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-50">
+                      {loadingPending ? (
+                        <TableSkeleton cols={6} />
+                      ) : pendingUpdates.length > 0 ? (
+                        pendingUpdates.map((item, idx) => (
+                          <tr
+                            key={item.pendingSellerId}
+                            onClick={() => handlePendingRowClick(item)}
+                            className="hover:bg-[#faf7ff] transition-colors cursor-pointer group"
+                          >
+                            <td className="px-6 py-4 text-gray-400 font-medium text-xs">{idx + 1}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors">
+                                {item.tempSellerRequestId}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.sellerName}</td>
+                            <td className="px-6 py-4">
+                              <a href={`mailto:${item.email}`} onClick={e => e.stopPropagation()}
+                                className="text-gray-600 hover:text-[#4B0082] transition-colors">
+                                {item.email}
+                              </a>
+                            </td>
+                            <td className="px-6 py-4 text-gray-500 text-xs whitespace-nowrap tabular-nums">
+                              {formatDateTimeIST(item.submittedAt)}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 bg-yellow-50 text-yellow-700 ring-yellow-200">
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-yellow-500" />
+                                Pending Review
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : !pendingError ? (
+                        <tr>
+                          <td colSpan={6} className="px-5 py-12 text-center">
+                            <div className="flex flex-col items-center gap-2 text-gray-400">
+                              <svg className="w-9 h-9 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <p className="text-sm font-medium">No pending profile updates</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ══════════════════════════════════════════════════
+              MAIN REQUESTS TABLE
+          ══════════════════════════════════════════════════ */}
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
 
             {/* Tabs */}
@@ -368,9 +554,7 @@ export default function AdminDashboard() {
                 {TABS.map(tab => (
                   <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                     className={`px-10 py-2.5 rounded-lg text-base font-bold transition-all duration-200
-                      ${activeTab === tab.key
-                        ? "bg-[#4B0082] text-white shadow-md"
-                        : "text-[#4B0082] hover:bg-white/60"}`}>
+                      ${activeTab === tab.key ? "bg-[#4B0082] text-white shadow-md" : "text-[#4B0082] hover:bg-white/60"}`}>
                     {tab.label}
                   </button>
                 ))}
@@ -378,8 +562,7 @@ export default function AdminDashboard() {
             </div>
 
             <div className="px-8 py-6">
-
-              {/* Title row */}
+              {/* Title */}
               <div className="mb-5 flex items-start justify-between">
                 <div>
                   <h1 className="text-2xl font-bold text-[#2D0066]">
@@ -393,26 +576,18 @@ export default function AdminDashboard() {
               <div className="mb-5 flex flex-wrap gap-3 items-center">
                 <div className="flex-1 min-w-[260px] relative">
                   <IconSearch />
-                  <input
-                    type="text"
-                    placeholder="Search by Request ID, Name, or Email..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pl-11 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4B0082] focus:border-transparent transition-all bg-gray-50 focus:bg-white"
-                  />
+                  <input type="text" placeholder="Search by Request ID, Name, or Email..."
+                    value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full pl-11 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#4B0082] focus:border-transparent transition-all bg-gray-50 focus:bg-white" />
                   {searchTerm && (
                     <button onClick={() => setSearchTerm("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                       <IconClose />
                     </button>
                   )}
                 </div>
-
                 <div className="relative">
-                  <select
-                    value={statusFilter}
-                    onChange={e => setStatusFilter(e.target.value)}
-                    className="appearance-none pl-4 pr-9 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4B0082] bg-gray-50 focus:bg-white cursor-pointer font-medium text-gray-700 transition-all"
-                  >
+                  <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                    className="appearance-none pl-4 pr-9 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4B0082] bg-gray-50 focus:bg-white cursor-pointer font-medium text-gray-700 transition-all">
                     <option value="All">All Status</option>
                     {["Open", "In Progress", "Closed", "Rejected", "Corrections Needed"].map(s => (
                       <option key={s} value={s}>{s}</option>
@@ -422,19 +597,14 @@ export default function AdminDashboard() {
                     <IconChevronDown />
                   </span>
                 </div>
-
                 {(searchTerm || statusFilter !== "All") && (
-                  <button
-                    onClick={() => { setSearchTerm(""); setStatusFilter("All"); }}
-                    className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-medium transition-all flex items-center gap-1.5"
-                  >
-                    <IconClose />
-                    Clear
+                  <button onClick={() => { setSearchTerm(""); setStatusFilter("All"); }}
+                    className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl text-sm font-medium transition-all flex items-center gap-1.5">
+                    <IconClose />Clear
                   </button>
                 )}
               </div>
 
-              {/* Error banner */}
               {hasError && (
                 <div className="mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                   <IconWarning />
@@ -450,11 +620,8 @@ export default function AdminDashboard() {
                       <tr className="bg-[#faf7ff] border-b border-gray-100">
                         <th className="px-6 py-4 text-left font-semibold text-gray-500 w-16 whitespace-nowrap">Sl. No</th>
                         {COLUMNS.map(({ field, label }) => (
-                          <th
-                            key={field}
-                            onClick={() => handleSort(field)}
-                            className="px-6 py-4 text-left font-semibold text-gray-500 cursor-pointer hover:bg-[#f0ebff] transition-colors select-none whitespace-nowrap"
-                          >
+                          <th key={field} onClick={() => handleSort(field)}
+                            className="px-6 py-4 text-left font-semibold text-gray-500 cursor-pointer hover:bg-[#f0ebff] transition-colors select-none whitespace-nowrap">
                             <div className="flex items-center">
                               {label}
                               <SortIcon field={field} sortField={sortField} sortOrder={sortOrder} />
@@ -471,28 +638,18 @@ export default function AdminDashboard() {
                         paginated.map((item, idx) => {
                           const { badge, dot } = STATUS_STYLES[item.status] ?? DEFAULT_STYLE;
                           return (
-                            <tr key={item.id} className="hover:bg-[#faf7ff] transition-colors group">
-                              <td className="px-6 py-4 text-gray-400 font-medium">
-                                {(safePage - 1) * PAGE_SIZE + idx + 1}
-                              </td>
+                            <tr key={item.id} className="hover:bg-[#faf7ff] transition-colors">
+                              <td className="px-6 py-4 text-gray-400 font-medium">{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                {/* ── FIX: pass entityType in URL ── */}
-                                <span
-                                  onClick={() => handleRowClick(item)}
-                                  className="text-[#4B0082] font-semibold cursor-pointer hover:text-[#751bb5] hover:underline transition-all"
-                                >
+                                <span onClick={() => handleRowClick(item)}
+                                  className="text-[#4B0082] font-semibold cursor-pointer hover:text-[#751bb5] hover:underline transition-all">
                                   {item.requestId}
                                 </span>
                               </td>
                               <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.name}</td>
                               <td className="px-6 py-4">
-                                <a
-                                  href={`mailto:${item.email}`}
-                                  onClick={e => e.stopPropagation()}
-                                  className="text-gray-600 hover:text-[#4B0082] transition-colors"
-                                >
-                                  {item.email}
-                                </a>
+                                <a href={`mailto:${item.email}`} onClick={e => e.stopPropagation()}
+                                  className="text-gray-600 hover:text-[#4B0082] transition-colors">{item.email}</a>
                               </td>
                               <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{formatDate(item.date)}</td>
                               <td className="px-6 py-4 whitespace-nowrap">
@@ -502,13 +659,9 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <button
-                                  title="Delete request"
-                                  onClick={() => setDeleteTarget(item)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150 group/del"
-                                >
-                                  <IconTrash />
-                                  Delete
+                                <button title="Delete request" onClick={() => setDeleteTarget(item)}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">
+                                  <IconTrash />Delete
                                 </button>
                               </td>
                             </tr>
@@ -539,33 +692,28 @@ export default function AdminDashboard() {
                   </span>
                   {totalPages > 1 && (
                     <div className="flex items-center gap-1">
-                      <button onClick={() => setCurrentPage(1)}                                  disabled={safePage === 1}          className={NAV_BTN}>«</button>
-                      <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))}           disabled={safePage === 1}          className={NAV_BTN}>‹</button>
+                      <button onClick={() => setCurrentPage(1)} disabled={safePage === 1} className={NAV_BTN}>«</button>
+                      <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={safePage === 1} className={NAV_BTN}>‹</button>
                       {getPageNumbers(safePage, totalPages).map((p, i) =>
                         p === "..." ? (
                           <span key={`e${i}`} className="px-2 py-1.5 text-xs text-gray-400">…</span>
                         ) : (
-                          <button
-                            key={p}
-                            onClick={() => setCurrentPage(p as number)}
+                          <button key={p} onClick={() => setCurrentPage(p as number)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all
-                              ${safePage === p
-                                ? "bg-[#4B0082] text-white border-[#4B0082] shadow-sm"
-                                : "border-gray-200 text-gray-600 hover:bg-[#f0ebff] hover:border-[#4B0082] hover:text-[#4B0082]"}`}
-                          >
+                              ${safePage === p ? "bg-[#4B0082] text-white border-[#4B0082] shadow-sm" : "border-gray-200 text-gray-600 hover:bg-[#f0ebff] hover:border-[#4B0082] hover:text-[#4B0082]"}`}>
                             {p}
                           </button>
                         )
                       )}
-                      <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}  disabled={safePage === totalPages} className={NAV_BTN}>›</button>
-                      <button onClick={() => setCurrentPage(totalPages)}                         disabled={safePage === totalPages} className={NAV_BTN}>»</button>
+                      <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages} className={NAV_BTN}>›</button>
+                      <button onClick={() => setCurrentPage(totalPages)} disabled={safePage === totalPages} className={NAV_BTN}>»</button>
                     </div>
                   )}
                 </div>
               )}
-
             </div>
           </div>
+
         </div>
       </main>
     </>
