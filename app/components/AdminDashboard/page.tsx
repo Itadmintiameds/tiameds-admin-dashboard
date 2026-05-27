@@ -40,6 +40,7 @@ const STATUS_MAP: Record<string, string> = {
   REJECTED: "Rejected",
   CORRECTION: "Corrections Needed", CORRECTION_REQUIRED: "Corrections Needed",
   CORRECTIONS_NEEDED: "Corrections Needed", CORRECTIONREQUIRED: "Corrections Needed",
+  RESUBMITTED: "Resubmitted",
 };
 
 const STATUS_STYLES: Record<string, { badge: string; dot: string }> = {
@@ -48,6 +49,7 @@ const STATUS_STYLES: Record<string, { badge: string; dot: string }> = {
   "Rejected":           { badge: "bg-red-50 text-red-700 ring-red-200",           dot: "bg-red-500"     },
   "Corrections Needed": { badge: "bg-amber-50 text-amber-700 ring-amber-200",     dot: "bg-amber-500"   },
   "In Progress":        { badge: "bg-blue-50 text-blue-700 ring-blue-200",        dot: "bg-blue-500"    },
+  "Resubmitted":        { badge: "bg-indigo-50 text-indigo-700 ring-indigo-200",  dot: "bg-indigo-500"  },
 };
 const DEFAULT_STYLE = { badge: "bg-gray-50 text-gray-600 ring-gray-200", dot: "bg-gray-400" };
 
@@ -589,7 +591,7 @@ export default function AdminDashboard() {
                   <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                     className="appearance-none pl-4 pr-9 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#4B0082] bg-gray-50 focus:bg-white cursor-pointer font-medium text-gray-700 transition-all">
                     <option value="All">All Status</option>
-                    {["Open", "In Progress", "Closed", "Rejected", "Corrections Needed"].map(s => (
+                    {["Open", "In Progress", "Corrections Needed", "Resubmitted", "Closed", "Rejected"].map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
                   </select>

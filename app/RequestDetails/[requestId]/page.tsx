@@ -15,6 +15,7 @@ const STATUS_MAP: Record<string, string> = {
   PENDING: "Open", OPEN: "Open",
   CORRECTION: "Corrections Needed", CORRECTION_REQUIRED: "Corrections Needed",
   CORRECTIONS_NEEDED: "Corrections Needed", CORRECTIONREQUIRED: "Corrections Needed",
+  RESUBMITTED: "Resubmitted",
 };
 
 const DECISION_CONFIG = {
@@ -808,13 +809,67 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
 
   const LOCK_ICON = <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />;
 
+  // Injects synthetic "Seller Submitted Changes" entries after each CORRECTION entry.
+  // The API only tracks admin actions; seller resubmissions never appear in reviewHistories.
+  const enrichHistories = (
+    histories: NonNullable<SellerData["reviewHistories"]>,
+    currentStatus: string,
+  ): NonNullable<SellerData["reviewHistories"]> => {
+    if (!histories.length) return histories;
+
+    const enriched: NonNullable<SellerData["reviewHistories"]> = [];
+    let synthId = -1;
+
+    for (let i = 0; i < histories.length; i++) {
+      const h = histories[i];
+      enriched.push(h);
+
+      const isCorrection = h.status?.toUpperCase().includes("CORRECTION");
+      const hasNext = i < histories.length - 1;
+      const nextAlreadyResubmitted = hasNext &&
+        histories[i + 1].status?.toUpperCase() === "RESUBMITTED";
+
+      if (isCorrection && hasNext && !nextAlreadyResubmitted) {
+        enriched.push({
+          id: synthId--,
+          status: "RESUBMITTED",
+          comments: "Seller submitted corrected information for admin review.",
+          reviewedBy: "Seller",
+          reviewedAt: "",
+        });
+      }
+    }
+
+    // If the last entry is a CORRECTION and the live status is RESUBMITTED,
+    // the seller has just resubmitted — add the entry at the end (newest).
+    const last = histories[histories.length - 1];
+    if (
+      last?.status?.toUpperCase().includes("CORRECTION") &&
+      currentStatus?.toUpperCase() === "RESUBMITTED"
+    ) {
+      enriched.push({
+        id: synthId--,
+        status: "RESUBMITTED",
+        comments: "Seller submitted corrected information for admin review.",
+        reviewedBy: "Seller",
+        reviewedAt: "",
+      });
+    }
+
+    return enriched;
+  };
+
   const historyStatusStyle = (s: string) => {
     const u = s?.toUpperCase();
-    if (u === "APPROVED" || u === "ACCEPT")  return { badge: "bg-green-50 text-green-700 ring-green-200",  dot: "bg-green-500", line: "border-green-200" };
-    if (u === "REJECTED"  || u === "REJECT") return { badge: "bg-red-50 text-red-700 ring-red-200",         dot: "bg-red-500",   line: "border-red-200"   };
-    if (u?.includes("CORRECTION"))           return { badge: "bg-amber-50 text-amber-700 ring-amber-200",   dot: "bg-amber-500", line: "border-amber-200" };
+    if (u === "APPROVED" || u === "ACCEPT")  return { badge: "bg-green-50 text-green-700 ring-green-200",   dot: "bg-green-500",  line: "border-green-200"  };
+    if (u === "REJECTED"  || u === "REJECT") return { badge: "bg-red-50 text-red-700 ring-red-200",          dot: "bg-red-500",    line: "border-red-200"    };
+    if (u?.includes("CORRECTION"))           return { badge: "bg-amber-50 text-amber-700 ring-amber-200",    dot: "bg-amber-500",  line: "border-amber-200"  };
+    if (u === "RESUBMITTED")                 return { badge: "bg-indigo-50 text-indigo-700 ring-indigo-200", dot: "bg-indigo-500", line: "border-indigo-200" };
     return { badge: "bg-blue-50 text-blue-700 ring-blue-200", dot: "bg-blue-400", line: "border-blue-200" };
   };
+
+  const historyLabel = (s: string) =>
+    s?.toUpperCase() === "RESUBMITTED" ? "Seller Submitted Changes" : normalizeStatus(s);
 
   const fileModalVerdict = () => {
     if (!currentFile) return null;
@@ -834,21 +889,39 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       <div className="space-y-4">
         {histories.map((h, idx) => {
           const st = historyStatusStyle(h.status);
+          const isSeller = h.status?.toUpperCase() === "RESUBMITTED";
           return (
             <div key={h.id} className="relative flex gap-4">
               <div className={`relative z-10 flex-shrink-0 w-[22px] h-[22px] rounded-full border-2 border-white shadow-sm flex items-center justify-center ${st.dot}`}>
                 {idx === 0 && (
-                  <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                  <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
                 )}
               </div>
               <div className={`flex-1 rounded-xl border p-4 space-y-1.5 ${idx === 0 ? "bg-white shadow-sm" : "bg-gray-50"} ${st.line}`}>
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${st.badge}`}>{normalizeStatus(h.status)}</span>
-                    {idx === 0 && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#2D0066] text-white">Latest</span>}
-                    <span className="text-xs text-gray-400 font-medium">by {h.reviewedBy}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ring-1 ${st.badge}`}>
+                      {historyLabel(h.status)}
+                    </span>
+                    {idx === 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#2D0066] text-white">Latest</span>
+                    )}
+                    {isSeller ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        Seller
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400 font-medium">by {h.reviewedBy}</span>
+                    )}
                   </div>
-                  <span className="text-xs text-gray-400 tabular-nums">{formatDateTimeIST(h.reviewedAt)}</span>
+                  {h.reviewedAt && (
+                    <span className="text-xs text-gray-400 tabular-nums">{formatDateTimeIST(h.reviewedAt)}</span>
+                  )}
                 </div>
                 {h.comments && <p className="text-sm text-gray-700 leading-relaxed">{h.comments}</p>}
               </div>
@@ -943,6 +1016,9 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
               <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Request ID</span>
               <span className="text-sm font-bold text-[#2D0066]">{newData?.sellerId ?? requestId}</span>
+              {sellerId > 0 && (
+                <span className="text-xs font-semibold text-purple-500 bg-purple-100 px-2 py-0.5 rounded-md">#{sellerId}</span>
+              )}
             </div>
 
             {/* Profile Update Info Banner */}
@@ -983,8 +1059,13 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             )}
             {isCorrectionMode && (
               <div className="flex items-start gap-3 px-5 py-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm">
-                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" /></svg>
-                <div><p className="font-semibold">Corrections Needed</p><p className="text-amber-600 mt-0.5">Seller has been notified. You can re-view and update document verification statuses.</p></div>
+                <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                <div>
+                  <p className="font-semibold">Awaiting Seller Corrections</p>
+                  <p className="text-amber-600 mt-0.5">
+                    A correction request has been sent to the seller. All decisions (Accept, Reject, Request Correction) are <span className="font-semibold">locked</span> until the seller resubmits their updated information.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -1141,6 +1222,18 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     </div>
                   )}
 
+                  {isCorrectionMode && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                      <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">{LOCK_ICON}</svg>
+                      <div>
+                        <p className="font-semibold text-amber-800 text-sm">Actions locked — waiting for seller resubmission</p>
+                        <p className="text-amber-700 text-sm mt-0.5">
+                          You cannot Accept, Reject, or send another Correction until the seller submits their corrected information.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {!allViewed && !isLocked && (
                     <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
                       <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
@@ -1159,16 +1252,16 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                     {(newData?.reviewHistories?.length ?? 0) > 0 && (
                       <div>
                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Review History</p>
-                        <ReviewHistoryTimeline histories={[...(newData!.reviewHistories!)].reverse()} />
+                        <ReviewHistoryTimeline histories={enrichHistories(newData!.reviewHistories!, newData!.status ?? "").reverse()} />
                       </div>
                     )}
 
                     <div>
                       <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Comments <span className="text-red-500">*</span></label>
-                      <textarea value={adminComment} rows={4} readOnly={isLocked}
-                        onChange={e => { if (isLocked) return; setAdminComment(e.target.value); setShowCommentError(false); }}
-                        placeholder={isLocked ? "Decision has been submitted — no further changes allowed." : "Enter your comments here..."}
-                        className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${isLocked ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0" : showCommentError ? "border-red-400 focus:ring-red-400 bg-white" : "border-gray-200 focus:ring-[#4B0082] bg-white"}`} />
+                      <textarea value={adminComment} rows={4} readOnly={isLocked || isCorrectionMode}
+                        onChange={e => { if (isLocked || isCorrectionMode) return; setAdminComment(e.target.value); setShowCommentError(false); }}
+                        placeholder={isLocked ? "Decision has been submitted — no further changes allowed." : isCorrectionMode ? "Waiting for seller to resubmit corrections…" : "Enter your comments here..."}
+                        className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none ${isLocked || isCorrectionMode ? "bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200 focus:ring-0" : showCommentError ? "border-red-400 focus:ring-red-400 bg-white" : "border-gray-200 focus:ring-[#4B0082] bg-white"}`} />
                       {showCommentError && (
                         <p className="flex items-center gap-1.5 mt-1.5 text-red-500 text-xs">
                           <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
@@ -1181,11 +1274,11 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
                       <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
                       {!isPendingUpdate ? (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          <ActionButton action="Accept" label="Accept Request" disabled={!canAccept || !!actionModal || isLocked} onClick={() => handleAction("Accept")}
+                          <ActionButton action="Accept" label="Accept Request" disabled={!canAccept || !!actionModal || isLocked || isCorrectionMode} onClick={() => handleAction("Accept")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
-                          <ActionButton action="Reject" label="Reject Request" disabled={!hasAnyRejected || !!actionModal || isLocked} onClick={() => handleAction("Reject")}
+                          <ActionButton action="Reject" label="Reject Request" disabled={!hasAnyRejected || !!actionModal || isLocked || isCorrectionMode} onClick={() => handleAction("Reject")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
-                          <ActionButton action="Correction" label="Request Correction" disabled={!allViewed || !!actionModal || isLocked} onClick={() => handleAction("Correction")}
+                          <ActionButton action="Correction" label="Request Correction" disabled={!allViewed || !!actionModal || isLocked || isCorrectionMode} onClick={() => handleAction("Correction")}
                             icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                         </div>
                       ) : (
