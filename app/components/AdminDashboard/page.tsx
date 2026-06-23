@@ -3,12 +3,13 @@
 import Header from "@/app/components/Header";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
+import { pharmaClient } from "@/app/lib/axios";
 
 // ─── Types ────────────────────────────────────────────────────
-type RequestType = "seller" | "buyer" | "lab";
+type RequestType = "seller" | "buyer" | "lab" | "pharma";
 type SortField   = "requestId" | "name" | "email" | "date" | "status";
 type SortOrder   = "asc" | "desc";
-type Request     = { id: number; requestId: string; name: string; email: string; date: string; status: string };
+type Request     = { id: number | string; requestId: string; name: string; email: string; date: string; status: string };
 
 type PendingProfileUpdate = {
   pendingSellerId: number;
@@ -28,10 +29,11 @@ const PENDING_API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/admin/sell
 const API_KEY         = "YOUR_API_KEY";
 const PAGE_SIZE       = 10;
 
-const DELETE_API: Record<RequestType, (id: number) => string> = {
+const DELETE_API: Record<RequestType, (id: number | string) => string> = {
   seller: (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers/both/${id}`,
   buyer:  (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-buyers/${id}`,
   lab:    (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-labs/${id}`,
+  pharma: (id) => `${process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080'}/api/v1/pharmacy-registration/${id}`,
 };
 
 const STATUS_MAP: Record<string, string> = {
@@ -57,6 +59,7 @@ const TABS: { key: RequestType; label: string }[] = [
   { key: "seller", label: "Seller" },
   { key: "buyer",  label: "Buyer"  },
   { key: "lab",    label: "Lab"    },
+  { key: "pharma", label: "Pharma- Inventory" },
 ];
 
 const COLUMNS: { field: SortField; label: string }[] = [
@@ -248,6 +251,10 @@ export default function AdminDashboard() {
   const [sellerError,    setSellerError]    = useState<string | null>(null);
   const [fetchTick,      setFetchTick]      = useState(0);
 
+  const [pharmacies,        setPharmacies]        = useState<Request[]>([]);
+  const [loadingPharmacies, setLoadingPharmacies] = useState(false);
+  const [pharmaError,       setPharmaError]       = useState<string | null>(null);
+
   const [buyers] = useState<Request[]>(DEMO_BUYERS);
   const [labs]   = useState<Request[]>(DEMO_LABS);
 
@@ -297,6 +304,39 @@ export default function AdminDashboard() {
       })
       .catch(err => { if (!cancelled) setSellerError(err.message ?? "Failed to fetch sellers"); })
       .finally(() => { if (!cancelled) setLoadingSellers(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, fetchTick]);
+
+  // Fetch pharmacies
+  useEffect(() => {
+    if (activeTab !== "pharma") return;
+    let cancelled = false;
+    setLoadingPharmacies(true);
+    setPharmaError(null);
+    pharmaClient.get("/api/v1/pharmacy-registration")
+      .then(res => {
+        if (cancelled) return;
+        const json = res.data;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
+        setPharmacies(list.map(item => {
+          let currentStatus = "SUBMITTED";
+          if (Array.isArray(item.pharmacyStatusReviews) && item.pharmacyStatusReviews.length > 0) {
+            const sortedReviews = [...item.pharmacyStatusReviews].sort((a, b) => new Date(b.statusDate).getTime() - new Date(a.statusDate).getTime());
+            currentStatus = sortedReviews[0].status;
+          }
+          return {
+            id:        item.pharmacyId || item.pharmacyRegistrationId || Math.random().toString(),
+            requestId: item.pharmacyRegistrationId || "N/A",
+            name:      item.pharmacyName || "—",
+            email:     item.pharmacyEmail || "—",
+            date:      item.createdDate ? item.createdDate.split("T")[0] : "—",
+            status:    normalizeStatus(currentStatus),
+          };
+        }));
+      })
+      .catch(err => { if (!cancelled) setPharmaError(err.message ?? "Failed to fetch pharmacies"); })
+      .finally(() => { if (!cancelled) setLoadingPharmacies(false); });
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
 
@@ -365,10 +405,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const activeTabLabel = activeTab === "seller" ? "Seller" : activeTab === "buyer" ? "Buyer" : "Lab";
+  const activeTabLabel = activeTab === "seller" ? "Seller" : activeTab === "buyer" ? "Buyer" : activeTab === "lab" ? "Lab" : "Pharma";
 
   const filtered = useMemo(() => {
-    const base = activeTab === "seller" ? sellers : activeTab === "buyer" ? buyers : labs;
+    const base = activeTab === "seller" ? sellers : activeTab === "buyer" ? buyers : activeTab === "lab" ? labs : pharmacies;
     const term  = searchTerm.toLowerCase();
     return base
       .filter(r =>
@@ -380,13 +420,14 @@ export default function AdminDashboard() {
         const bv = sortField === "date" ? new Date(b.date).getTime() : b[sortField];
         return av < bv ? (sortOrder === "asc" ? -1 : 1) : av > bv ? (sortOrder === "asc" ? 1 : -1) : 0;
       });
-  }, [activeTab, sellers, buyers, labs, searchTerm, statusFilter, sortField, sortOrder]);
+  }, [activeTab, sellers, buyers, labs, pharmacies, searchTerm, statusFilter, sortField, sortOrder]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(currentPage, totalPages);
   const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const isLoading  = activeTab === "seller" && loadingSellers;
-  const hasError   = activeTab === "seller" && !!sellerError;
+  const isLoading  = (activeTab === "seller" && loadingSellers) || (activeTab === "pharma" && loadingPharmacies);
+  const hasError   = (activeTab === "seller" && !!sellerError) || (activeTab === "pharma" && !!pharmaError);
+  const errorMsg   = activeTab === "seller" ? sellerError : pharmaError;
 
   // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
@@ -568,7 +609,7 @@ export default function AdminDashboard() {
               <div className="mb-5 flex items-start justify-between">
                 <div>
                   <h1 className="text-2xl font-bold text-[#2D0066]">
-                    {activeTab === "seller" ? "Seller Requests" : activeTab === "buyer" ? "Buyer Requests" : "Lab Module Requests"}
+                    {activeTab === "seller" ? "Seller Requests" : activeTab === "buyer" ? "Buyer Requests" : activeTab === "lab" ? "Lab Module Requests" : "Pharma- Inventory Requests"}
                   </h1>
                   <p className="text-gray-500 mt-1 text-sm">Review and manage onboarding requests</p>
                 </div>
@@ -610,7 +651,7 @@ export default function AdminDashboard() {
               {hasError && (
                 <div className="mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                   <IconWarning />
-                  <span><strong>Failed to load:</strong> {sellerError}</span>
+                  <span><strong>Failed to load:</strong> {errorMsg}</span>
                 </div>
               )}
 
