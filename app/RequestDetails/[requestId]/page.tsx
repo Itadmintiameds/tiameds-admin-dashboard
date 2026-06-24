@@ -3,6 +3,7 @@
 import Header from "@/app/components/Header";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
+import PharmaDetails from "@/app/components/PharmaDetails";
 
 // ─── Constants ────────────────────────────────────────────────
 const BASE_URL    = "https://api-test-aggreator.tiameds.ai/api/v1";
@@ -528,7 +529,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
-  const sellerId        = Number(searchParams.get("sellerId") ?? 0);
+  const sellerIdParam   = searchParams.get("sellerId") ?? "";
+  const sellerId        = isNaN(Number(sellerIdParam)) ? sellerIdParam : Number(sellerIdParam);
   const entityType      = searchParams.get("entityType");
   const sellerEmail     = searchParams.get("sellerEmail") ?? "";
   const isProfileUpdate = entityType === "seller" && !!sellerId && !!sellerEmail;
@@ -570,7 +572,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     let cancelled = false;
 
     const fetchAll = async () => {
-      if (isProfileUpdate) {
+      if (entityType === "pharma") {
+        setLoading(false);
+        return;
+      } else if (isProfileUpdate) {
         const pendingRes = await fetch(`${BASE_URL}/admin/seller-requests/pending/${sellerId}`, {
           headers: { "X-API-Key": API_KEY },
         });
@@ -582,7 +587,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         if (cancelled) return;
         setNewData(normalized);
         setIsPendingUpdate(true);
-        setPendingSellerId(rawNew.pendingSellerId ?? sellerId);
+        setPendingSellerId(rawNew.pendingSellerId ?? (typeof sellerId === 'number' ? sellerId : 0));
         const decision = decisionFromStatus(rawNew.status ?? "");
         setSubmittedDecision(decision);
         setFileStates(buildFileStates(normalized, decision));
@@ -978,6 +983,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   const totalChanges = companyChanges + coordinatorChanges + bankChanges;
 
   // ── Render ──
+  if (entityType === "pharma") {
+    return <PharmaDetails requestId={requestId} sellerId={sellerId} />;
+  }
+
   return (
     <>
       <style>{`
@@ -1016,7 +1025,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
             <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
               <span className="text-xs font-semibold text-purple-400 uppercase tracking-wide">Request ID</span>
               <span className="text-sm font-bold text-[#2D0066]">{newData?.sellerId ?? requestId}</span>
-              {sellerId > 0 && (
+              {Number(sellerId) > 0 && (
                 <span className="text-xs font-semibold text-purple-500 bg-purple-100 px-2 py-0.5 rounded-md">#{sellerId}</span>
               )}
             </div>

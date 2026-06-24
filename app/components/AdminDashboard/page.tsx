@@ -39,6 +39,7 @@ const DELETE_API: Record<RequestType, (id: number | string) => string> = {
 const STATUS_MAP: Record<string, string> = {
   APPROVED: "Closed", CLOSED: "Closed",
   PENDING: "Open",    OPEN: "Open",
+  SUBMITTED: "Open", COMPLIANCE_REQUIRED: "Open", COMPLIANCE_PENDING: "Open",
   REJECTED: "Rejected",
   CORRECTION: "Corrections Needed", CORRECTION_REQUIRED: "Corrections Needed",
   CORRECTIONS_NEEDED: "Corrections Needed", CORRECTIONREQUIRED: "Corrections Needed",
