@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Header from "@/app/components/Header";
-
-const BASE_URL = process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080';
+import TopHeader from "@/app/components/TopHeader";
+import Sidebar from "@/app/components/Sidebar";
+import { pharmaClient } from "@/app/lib/axios";
 
 const STATUS_MAP: Record<string, string> = {
   SUBMITTED: "Open",
@@ -12,8 +12,11 @@ const STATUS_MAP: Record<string, string> = {
   COMPLIANCE_PENDING: "Open",
   APPROVED: "Closed",
   CLOSED: "Closed",
+  ACCEPT: "Closed",
   REJECTED: "Rejected",
+  REJECT: "Rejected",
   CORRECTION_NEEDED: "Corrections Needed",
+  CORRECTION: "Corrections Needed",
   RESUBMITTED: "Resubmitted",
 };
 
@@ -101,16 +104,14 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
   const [verifying, setVerifying] = useState(false);
   const [adminComment, setAdminComment] = useState("");
   const [showCommentError, setShowCommentError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const fetchData = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/api/v1/pharmacy-registration/${sellerId}`, {
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!res.ok) throw new Error(`${res.status} Failed to fetch data`);
-        const json = await res.json();
+        const res = await pharmaClient.get(`/pharmacy-registration/${sellerId}`);
+        const json = res.data;
         if (!cancelled) setData(json.data ?? json);
       } catch (err: any) {
         if (!cancelled) setError(err.message);
@@ -131,17 +132,12 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
     if (!currentFile?.documentId) return;
     setVerifying(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/v1/pharmacy-registration/verify-document`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pharmacyRegistrationId: data.pharmacyRegistrationId,
-          registrationDocumentId: currentFile.documentId,
-          verified: verified
-        })
+      const res = await pharmaClient.patch(`/pharmacy-registration/verify-document`, {
+        pharmacyRegistrationId: data.pharmacyRegistrationId,
+        registrationDocumentId: currentFile.documentId,
+        verified: verified
       });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message || "Failed to verify document");
+      const result = res.data;
       
       setToast({ message: `Document ${verified ? "verified" : "rejected"} successfully`, type: "success" });
       
@@ -164,32 +160,38 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
 
   if (loading) {
     return (
-      <>
-        <Header admin onLogout={() => router.push("/")} />
-        <main className="pt-12 bg-[#F7F2FB] min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#4B0082]"></div>
-        </main>
-      </>
+      <div className="flex bg-gray-50 min-h-screen font-sans">
+        <Sidebar activeCategory="requests" activeType="pharma" onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)} />
+        <div className="flex-1 ml-64 flex flex-col min-h-screen relative">
+          <TopHeader onLogout={() => router.push("/")} />
+          <main className="flex-1 pt-12 bg-[#F7F2FB] flex items-center justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#4B0082]"></div>
+          </main>
+        </div>
+      </div>
     );
   }
 
   if (error || !data) {
     return (
-      <>
-        <Header admin onLogout={() => router.push("/")} />
-        <main className="pt-12 bg-[#F7F2FB] min-h-screen flex flex-col items-center justify-center">
-          <p className="text-red-500 font-semibold mb-4">{error || "Failed to load details."}</p>
-          <button onClick={() => router.back()} className="px-4 py-2 bg-[#4B0082] text-white rounded-lg">Go Back</button>
-        </main>
-      </>
+      <div className="flex bg-gray-50 min-h-screen font-sans">
+        <Sidebar activeCategory="requests" activeType="pharma" onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)} />
+        <div className="flex-1 ml-64 flex flex-col min-h-screen relative">
+          <TopHeader onLogout={() => router.push("/")} />
+          <main className="flex-1 pt-12 bg-[#F7F2FB] flex flex-col items-center justify-center">
+            <p className="text-red-500 font-semibold mb-4">{error || "Failed to load details."}</p>
+            <button onClick={() => router.back()} className="px-4 py-2 bg-[#4B0082] text-white rounded-lg">Go Back</button>
+          </main>
+        </div>
+      </div>
     );
   }
 
-  // Derive status
   const sortedReviews = data.pharmacyStatusReviews ? [...data.pharmacyStatusReviews].sort((a: any, b: any) => new Date(b.statusDate).getTime() - new Date(a.statusDate).getTime()) : [];
   const currentStatus = sortedReviews[0]?.status || "SUBMITTED";
   const displayStatus = normalizeStatus(currentStatus);
-  const isLocked = currentStatus === "APPROVED" || currentStatus === "CLOSED" || currentStatus === "REJECTED";
+  const isLocked = ["APPROVED", "CLOSED", "REJECTED", "ACCEPT", "REJECT"].includes(currentStatus);
+  const hasUnverifiedDocs = data.pharmacyRegistrationDocuments?.some((doc: any) => doc.verified !== true);
 
   const handleAction = async (action: string) => {
     if (!adminComment.trim()) {
@@ -197,20 +199,46 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
       return;
     }
     setShowCommentError(false);
-    setToast({ message: "Pharma approval endpoints not integrated yet.", type: "error" });
-    setTimeout(() => setToast(null), 3000);
+    setSubmitting(true);
+    
+    let backendStatus = "";
+    if (action === "Accept") backendStatus = "ACCEPT";
+    else if (action === "Reject") backendStatus = "REJECT";
+    else if (action === "Correction") backendStatus = "CORRECTION";
+
+    try {
+      await pharmaClient.post('/admin/pharmacy/review', {
+        registrationId: data.pharmacyRegistrationId || requestId,
+        status: backendStatus,
+        remark: adminComment
+      });
+      setToast({ message: `Successfully actioned: ${action}`, type: "success" });
+      setTimeout(() => setToast(null), 3000);
+      setAdminComment("");
+      
+      // refresh data
+      const res = await pharmaClient.get(`/pharmacy-registration/${sellerId}`);
+      setData(res.data.data ?? res.data);
+    } catch (err: any) {
+      console.error("Action error:", err);
+      setToast({ message: err?.response?.data?.message || "Failed to submit decision", type: "error" });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const badgeClass = "bg-purple-50 text-purple-700 ring-purple-200";
   const dotClass = "bg-purple-500";
 
   return (
-    <>
-      <Header admin onLogout={() => router.push("/")} />
+    <div className="flex bg-gray-50 min-h-screen font-sans">
+      <Sidebar activeCategory="requests" activeType="pharma" onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)} />
+      <div className="flex-1 ml-64 flex flex-col min-h-screen relative">
+        <TopHeader onLogout={() => router.push("/")} />
       
-      <main className="pt-12 bg-[#F7F2FB] min-h-screen px-4 sm:px-6 pb-10">
+      <main className="flex-1 pt-6 bg-[#F7F2FB] px-4 sm:px-6 pb-10 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
-          <div className="h-5" />
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] p-5 sm:p-8 space-y-5">
             
             {/* Header */}
@@ -347,11 +375,11 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
                 <div>
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Select Action</p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <ActionButton action="Accept" label="Accept Request" disabled={isLocked} onClick={() => handleAction("Accept")}
+                    <ActionButton action="Accept" label="Accept Request" disabled={isLocked || submitting || hasUnverifiedDocs} onClick={() => handleAction("Accept")}
                       icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>} />
-                    <ActionButton action="Reject" label="Reject Request" disabled={isLocked} onClick={() => handleAction("Reject")}
+                    <ActionButton action="Reject" label="Reject Request" disabled={isLocked || submitting} onClick={() => handleAction("Reject")}
                       icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>} />
-                    <ActionButton action="Correction" label="Request Correction" disabled={isLocked} onClick={() => handleAction("Correction")}
+                    <ActionButton action="Correction" label="Request Correction" disabled={isLocked || submitting} onClick={() => handleAction("Correction")}
                       icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                   </div>
                 </div>
@@ -365,7 +393,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
       {/* Floating Back Button */}
       <button
         onClick={() => router.back()}
-        className="fixed left-5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center gap-1.5 group"
+        className="fixed left-[270px] top-24 z-40 flex flex-col items-center gap-1.5 group"
         aria-label="Go back"
       >
         <div className="w-10 h-10 rounded-full bg-white border border-purple-200 shadow-lg flex items-center justify-center text-[#4B0082] group-hover:bg-[#4B0082] group-hover:text-white group-hover:border-[#4B0082] group-hover:shadow-xl transition-all duration-200 active:scale-90">
@@ -402,7 +430,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
               <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">
                 Close
               </button>
-              {currentFile?.documentId && (
+              {currentFile?.documentId && !isLocked && (
                 <div className="flex items-center gap-3">
                   <button onClick={() => handleVerifyDocument(true)} disabled={verifying} className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm flex items-center gap-2 disabled:opacity-50">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -431,6 +459,8 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
           </div>
         </div>
       )}
-    </>
+
+      </div>
+    </div>
   );
 }

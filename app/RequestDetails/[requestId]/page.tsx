@@ -1,13 +1,13 @@
 "use client";
 
-import Header from "@/app/components/Header";
+import TopHeader from "@/app/components/TopHeader";
+import Sidebar from "@/app/components/Sidebar";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import PharmaDetails from "@/app/components/PharmaDetails";
+import { sellerClient } from "@/app/lib/axios";
 
 // ─── Constants ────────────────────────────────────────────────
-const BASE_URL    = "https://api-test-aggreator.tiameds.ai/api/v1";
-const API_KEY     = "YOUR_API_KEY";
 const APPROVED_BY = "admin@example.com";
 
 const STATUS_MAP: Record<string, string> = {
@@ -576,12 +576,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         setLoading(false);
         return;
       } else if (isProfileUpdate) {
-        const pendingRes = await fetch(`${BASE_URL}/admin/seller-requests/pending/${sellerId}`, {
-          headers: { "X-API-Key": API_KEY },
-        });
-        if (!pendingRes.ok) throw new Error(`Pending fetch failed: ${pendingRes.status}`);
-        const pendingJson = await pendingRes.json();
-        const rawNew      = pendingJson.data ?? pendingJson;
+        const pendingRes = await sellerClient.get(`/admin/seller-requests/pending/${sellerId}`);
+        const rawNew      = pendingRes.data.data ?? pendingRes.data;
         const normalized  = normalizeApiResponse(rawNew);
 
         if (cancelled) return;
@@ -596,14 +592,9 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
         if (currentSellerId) {
           if (!cancelled) setLoadingOld(true);
           try {
-            const oldRes = await fetch(`${BASE_URL}/admin/seller-requests/${currentSellerId}`, {
-              headers: { "X-API-Key": API_KEY },
-            });
-            if (oldRes.ok) {
-              const oldJson = await oldRes.json();
-              const rawOld  = oldJson.data ?? oldJson;
-              if (!cancelled) setOldData(normalizeApiResponse(rawOld));
-            }
+            const oldRes = await sellerClient.get(`/admin/seller-requests/${currentSellerId}`);
+            const rawOld  = oldRes.data.data ?? oldRes.data;
+            if (!cancelled) setOldData(normalizeApiResponse(rawOld));
           } catch (e) {
             console.error("Failed to fetch old seller data:", e);
           } finally {
@@ -611,12 +602,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
           }
         }
       } else {
-        const res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}`, {
-          headers: { "X-API-Key": API_KEY },
-        });
-        if (!res.ok) throw new Error(`${res.status}`);
-        const json   = await res.json();
-        const detail = normalizeApiResponse(json.data ?? json);
+        const res = await sellerClient.get(`/temp-sellers/${sellerId}`);
+        const detail = normalizeApiResponse(res.data.data ?? res.data);
         if (cancelled) return;
         const decision = decisionFromStatus(detail.status ?? "");
         setNewData(detail);
@@ -675,18 +662,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     try {
       let res: Response;
       if (fileKey === "gstFile") {
-        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/gst`, {
-          method: "PATCH", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ gstVerified: String(verified) }),
-        });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
+        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/gst`, { gstVerified: String(verified) });
         if (verified) showToast("GST verified ✔", "success");
       } else if (fileKey === "chequeFile") {
-        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/bank`, {
-          method: "PATCH", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ bankDocumentVerified: String(verified) }),
-        });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
+        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/bank`, { bankDocumentVerified: String(verified) });
         if (verified) showToast("Bank doc verified ✔", "success");
       } else if (fileKey.startsWith("doc_")) {
         // Key format: doc_<documentId>_<idx>
@@ -698,12 +677,9 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
           throw new Error("Could not resolve document ID — please refresh and try again.");
         }
 
-        res = await fetch(`${BASE_URL}/temp-sellers/${sellerId}/verify/document`, {
-          method: "PATCH",
-          headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ documentId, documentVerified: String(verified) }),
+        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/document`, {
+          documentId, documentVerified: String(verified)
         });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
         if (verified) showToast("Document verified ✔", "success");
       }
     } catch (e) {
@@ -721,12 +697,9 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     setShowCommentError(false);
     setActionModal({ action, phase: "loading" });
     try {
-      const res = await fetch(`${BASE_URL}/admin/sellers/review`, {
-        method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ id: sellerId, status: action, comments: adminComment }),
+      const res = await sellerClient.post(`/admin/sellers/review`, {
+        id: sellerId, status: action, comments: adminComment
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message ?? `${res.status}`);
       if (action === "Accept" || action === "Reject") {
         const frozen = Object.fromEntries(Object.entries(fileStates).map(([k, v]) => [k, { verified: v.verified, viewed: true }]));
         if (sellerId) sessionStorage.setItem(`fileStates_${sellerId}`, JSON.stringify(frozen));
@@ -750,12 +723,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     setProfileActionLoading(true);
     setActionModal({ action: "Accept", phase: "loading" });
     try {
-      const res = await fetch(
-        `${BASE_URL}/admin/seller-requests/${pendingSellerId}/approve?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
-        { method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ comments: adminComment }) }
+      const res = await sellerClient.post(
+        `/admin/seller-requests/${pendingSellerId}/approve?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
+        { comments: adminComment }
       );
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
       setIsPendingUpdate(false);
       setActionModal({ action: "Accept", phase: "success" });
       setTimeout(() => { setActionModal(null); router.back(); }, 3000);
@@ -773,14 +744,10 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
     setProfileRejectModalOpen(false);
     setActionModal({ action: "Reject", phase: "loading" });
     try {
-      const res = await fetch(
-        `${BASE_URL}/admin/seller-requests/${pendingSellerId}/reject?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
-        {
-          method: "POST", headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({ pendingSellerId, action: "REJECT", rejectionReason: reason, comments: adminComment, approvedBy: APPROVED_BY }),
-        }
+      const res = await sellerClient.post(
+        `/admin/seller-requests/${pendingSellerId}/reject?approvedBy=${encodeURIComponent(APPROVED_BY)}`,
+        { pendingSellerId, action: "REJECT", rejectionReason: reason, comments: adminComment, approvedBy: APPROVED_BY }
       );
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? `${res.status}`);
       setIsPendingUpdate(false);
       setActionModal({ action: "Reject", phase: "success" });
       setTimeout(() => { setActionModal(null); router.back(); }, 3000);
@@ -988,19 +955,24 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
   }
 
   return (
-    <>
+    <div className="flex bg-gray-50 min-h-screen font-sans">
+      <Sidebar 
+        activeCategory={isPendingUpdate ? "updates" : "requests"} 
+        activeType={(entityType as any) || "seller"} 
+        onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)} 
+      />
+      <div className="flex-1 ml-64 flex flex-col min-h-screen relative">
+        <TopHeader onLogout={() => router.push("/")} />
+
       <style>{`
         @keyframes modalIn { from { transform: scale(0.82) translateY(20px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
         @keyframes pulseOut { 0% { transform: scale(0.8); opacity: 0.3; } 70% { transform: scale(1.9); opacity: 0; } 100% { transform: scale(1.9); opacity: 0; } }
       `}</style>
 
-      <Header admin onLogout={() => router.push("/admin_f6c29e3d/login")} />
-
       <ProfileRejectModal open={profileRejectModalOpen} onConfirm={handleProfileReject} onCancel={() => setProfileRejectModalOpen(false)} isLoading={profileActionLoading} />
 
-      <main className="pt-12 bg-[#F7F2FB] min-h-screen px-4 sm:px-6 pb-10">
+      <main className="flex-1 pt-6 bg-[#F7F2FB] px-4 sm:px-6 pb-10 overflow-y-auto">
         <div className="max-w-5xl mx-auto">
-          <div className="h-5" />
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] p-5 sm:p-8 space-y-5">
 
             {/* Header */}
@@ -1385,7 +1357,7 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
       {/* ── Floating Back Button ── */}
       <button
         onClick={() => router.back()}
-        className="fixed left-5 top-1/2 -translate-y-1/2 z-40 flex flex-col items-center gap-1.5 group"
+        className="fixed left-[270px] top-24 z-40 flex flex-col items-center gap-1.5 group"
         aria-label="Go back"
       >
         <div className="w-10 h-10 rounded-full bg-white border border-purple-200 shadow-lg flex items-center justify-center text-[#4B0082] group-hover:bg-[#4B0082] group-hover:text-white group-hover:border-[#4B0082] group-hover:shadow-xl transition-all duration-200 active:scale-90">
@@ -1397,6 +1369,8 @@ export default function RequestDetails({ requestId }: { requestId: string }) {
           Back
         </span>
       </button>
-    </>
+
+      </div>
+    </div>
   );
 }

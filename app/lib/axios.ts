@@ -1,10 +1,9 @@
 import axios from 'axios';
 
 // Base instances for different backends.
-// This is designed so future seller, buyer, and lab requests can also be migrated here easily.
 
 export const pharmaClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080',
+  baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,15 +17,22 @@ export const labClient = axios.create({
 });
 
 export const marketplaceClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_MARKETPLACE_BACKEND_API || 'https://api-test-aggreator.tiameds.ai',
+  baseURL: process.env.NEXT_PUBLIC_MARKETPLACE_BACKEND_API || 'https://api-test-aggreator.tiameds.ai/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// You can add interceptors here later for authentication tokens
+export const sellerClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_SELLER_BACKEND_API || 'https://api-test-aggreator.tiameds.ai/api/v1',
+  headers: {
+    'Content-Type': 'application/json',
+    // Add API key from env if available, else hardcode for now as per current codebase
+    'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || 'YOUR_API_KEY'
+  },
+});
+
+// Interceptors can be added here
 pharmaClient.interceptors.request.use((config) => {
-  // If an API key or token is needed, attach it here
-  // config.headers['Authorization'] = `Bearer ${token}`;
   return config;
 });

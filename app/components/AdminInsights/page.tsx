@@ -1,12 +1,11 @@
 "use client";
 
-import Header from "@/app/components/Header";
+import TopHeader from "@/app/components/TopHeader";
+import Sidebar from "@/app/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo } from "react";
 
-// ─── Constants ────────────────────────────────────────────────
-const API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
-const API_KEY = "YOUR_API_KEY";
+import { sellerClient } from "@/app/lib/axios";
 
 const STATUS_MAP: Record<string, string> = {
   APPROVED: "Closed", CLOSED: "Closed",
@@ -170,9 +169,9 @@ export default function AdminInsights() {
       }
     });
 
-    fetch(API_URL, { headers: { "X-API-Key": API_KEY } })
-      .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
-      .then((json: { data?: SellerApiItem[] } | SellerApiItem[]) => {
+    sellerClient.get("/temp-sellers")
+      .then(r => {
+        const json = r.data;
         if (cancelled) return;
         const list: SellerApiItem[] = Array.isArray(json)
           ? json
@@ -236,10 +235,12 @@ export default function AdminInsights() {
     router.push(`/RequestDetails/${seller.requestId}?sellerId=${seller.id}`);
 
   return (
-    <>
-      <Header admin onLogout={() => router.push("/page")} />
-      <main className="pt-10 bg-[#F7F2FB] min-h-screen px-5 pb-10">
-        <div className="max-w-7xl mx-auto space-y-6">
+    <div className="flex bg-gray-50 min-h-screen font-sans">
+      <Sidebar activeCategory="insights" activeType="insights" onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)} />
+      <div className="flex-1 ml-64 flex flex-col min-h-screen relative">
+        <TopHeader onLogout={() => router.push("/")} />
+        <main className="flex-1 bg-[#F7F2FB] px-5 pb-10 pt-10 overflow-y-auto">
+          <div className="max-w-7xl mx-auto space-y-6">
 
           {/* ── Page header ──────────────────────────────── */}
           <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] px-8 py-6">
@@ -342,7 +343,8 @@ export default function AdminInsights() {
           </div>
 
         </div>
-      </main>
-    </>
+        </main>
+      </div>
+    </div>
   );
 }

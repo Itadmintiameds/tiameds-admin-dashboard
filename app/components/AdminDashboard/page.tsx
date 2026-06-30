@@ -1,9 +1,10 @@
 "use client";
 
-import Header from "@/app/components/Header";
+import TopHeader from "@/app/components/TopHeader";
+import Sidebar from "@/app/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
-import { pharmaClient } from "@/app/lib/axios";
+import { pharmaClient, sellerClient } from "@/app/lib/axios";
 
 // ─── Types ────────────────────────────────────────────────────
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
@@ -24,9 +25,6 @@ type PendingProfileUpdate = {
 };
 
 // ─── Constants ────────────────────────────────────────────────
-const API_URL         = "https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers";
-const PENDING_API_URL = "https://api-test-aggreator.tiameds.ai/api/v1/admin/seller-requests/pending";
-const API_KEY         = "YOUR_API_KEY";
 const PAGE_SIZE       = 10;
 
 const DELETE_API: Record<RequestType, (id: number | string) => string> = {
@@ -240,12 +238,23 @@ const NAV_BTN = "px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray
 export default function AdminDashboard() {
   const router = useRouter();
 
+  const [activeCategory, setActiveCategory] = useState<"requests" | "updates">("requests");
   const [activeTab,    setActiveTab]    = useState<RequestType>("seller");
   const [sortField,    setSortField]    = useState<SortField>("requestId");
   const [sortOrder,    setSortOrder]    = useState<SortOrder>("desc");
   const [searchTerm,   setSearchTerm]   = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [currentPage,  setCurrentPage]  = useState(1);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const cat = params.get("category");
+      const tab = params.get("tab");
+      if (cat) setActiveCategory(cat as "requests" | "updates");
+      if (tab) setActiveTab(tab as RequestType);
+    }
+  }, []);
 
   const [sellers,        setSellers]        = useState<Request[]>([]);
   const [loadingSellers, setLoadingSellers] = useState(false);
@@ -288,8 +297,8 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingSellers(true);
     setSellerError(null);
-    fetch(API_URL, { headers: { "X-API-Key": API_KEY } })
-      .then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}`); return r.json(); })
+    sellerClient.get("/temp-sellers")
+      .then(r => r.data)
       .then(json => {
         if (cancelled) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -314,7 +323,7 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingPharmacies(true);
     setPharmaError(null);
-    pharmaClient.get("/api/v1/pharmacy-registration")
+    pharmaClient.get("/pharmacy-registration")
       .then(res => {
         if (cancelled) return;
         const json = res.data;
@@ -346,14 +355,8 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingPending(true);
     setPendingError(null);
-    fetch(PENDING_API_URL, { headers: { "X-API-Key": API_KEY } })
-      .then(async r => {
-        if (!r.ok) {
-          const errorText = await r.text();
-          throw new Error(`${r.status} ${r.statusText}${errorText ? ` — ${errorText}` : ""}`);
-        }
-        return r.json();
-      })
+    sellerClient.get("/admin/seller-requests/pending")
+      .then(r => r.data)
       .then(json => {
         if (cancelled) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -394,8 +397,7 @@ export default function AdminDashboard() {
     setIsDeleting(true);
     try {
       const url = DELETE_API[activeTab](deleteTarget.id);
-      const res = await fetch(url, { method: "DELETE", headers: { "X-API-Key": API_KEY } });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const res = await sellerClient.delete(url.replace(/https?:\/\/[^\/]+\/api\/v1/, ''));
       if (activeTab === "seller") setSellers(prev => prev.filter(r => r.id !== deleteTarget.id));
       setDeleteTarget(null);
       showToast(`${deleteTarget.requestId} deleted successfully.`, "success");
@@ -458,8 +460,17 @@ export default function AdminDashboard() {
   };
 
   return (
-    <>
-      <Header admin onLogout={() => router.push("/")} />
+    <div className="flex bg-gray-50 min-h-screen font-sans">
+      <Sidebar 
+        activeCategory={activeCategory} 
+        activeType={activeTab} 
+        onSelect={(cat, type) => {
+          setActiveCategory(cat as "requests" | "updates");
+          setActiveTab(type as RequestType);
+        }} 
+      />
+      <div className="flex-1 ml-64 flex flex-col min-h-screen">
+        <TopHeader onLogout={() => router.push("/")} />
 
       {/* Toast */}
       {toast && (
@@ -484,13 +495,14 @@ export default function AdminDashboard() {
         onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} isDeleting={isDeleting}
       />
 
-      <main className="bg-[#F7F2FB] min-h-screen px-5 pb-10 pt-10">
-        <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 bg-[#F7F2FB] px-5 pb-10 pt-10 overflow-y-auto">
+          <div className="max-w-7xl mx-auto space-y-6">
 
           {/* ══════════════════════════════════════════════════
-              SELLER PROFILE UPDATES PANEL
+              PROFILE UPDATES PANEL
           ══════════════════════════════════════════════════ */}
-          <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
+          {activeCategory === "updates" && (
+            <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
             <div className="px-8 pt-6 pb-0">
               <div className="flex items-center justify-between flex-wrap gap-3 mb-5">
                 <div className="flex items-center gap-3">
@@ -498,8 +510,10 @@ export default function AdminDashboard() {
                     <IconUser />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-[#2D0066]">Seller Profile Updates</h2>
-                    <p className="text-gray-400 text-xs mt-0.5">Sellers who updated their profile — click to review</p>
+                    <h2 className="text-lg font-bold text-[#2D0066]">
+                      {activeTab === "seller" ? "Seller Profile Updates" : activeTab === "buyer" ? "Buyer Profile Updates" : activeTab === "lab" ? "Lab Profile Updates" : "Pharma Profile Updates"}
+                    </h2>
+                    <p className="text-gray-400 text-xs mt-0.5">Click to review recently updated profiles</p>
                   </div>
                 </div>
                 <button
@@ -535,7 +549,13 @@ export default function AdminDashboard() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-50">
-                      {loadingPending ? (
+                      {activeTab !== "seller" ? (
+                        <tr>
+                          <td colSpan={6} className="px-5 py-12 text-center">
+                            <p className="text-sm text-gray-500 font-medium">Updates for {activeTab} are not currently implemented.</p>
+                          </td>
+                        </tr>
+                      ) : loadingPending ? (
                         <TableSkeleton cols={6} />
                       ) : pendingUpdates.length > 0 ? (
                         pendingUpdates.map((item, idx) => (
@@ -585,26 +605,14 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
-          </div>
+            </div>
+          )}
 
           {/* ══════════════════════════════════════════════════
               MAIN REQUESTS TABLE
           ══════════════════════════════════════════════════ */}
-          <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
-
-            {/* Tabs */}
-            <div className="px-8 pt-5">
-              <div className="inline-flex bg-[#e9e2ff] p-1 rounded-xl shadow-sm">
-                {TABS.map(tab => (
-                  <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-                    className={`px-10 py-2.5 rounded-lg text-base font-bold transition-all duration-200
-                      ${activeTab === tab.key ? "bg-[#4B0082] text-white shadow-md" : "text-[#4B0082] hover:bg-white/60"}`}>
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
+          {activeCategory === "requests" && (
+            <div className="bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] overflow-hidden">
             <div className="px-8 py-6">
               {/* Title */}
               <div className="mb-5 flex items-start justify-between">
@@ -756,10 +764,12 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
-          </div>
+            </div>
+          )}
 
         </div>
       </main>
-    </>
+    </div>
+    </div>
   );
 }
