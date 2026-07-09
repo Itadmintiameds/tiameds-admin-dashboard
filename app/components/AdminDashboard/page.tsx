@@ -4,7 +4,7 @@ import TopHeader from "@/app/components/TopHeader";
 import Sidebar from "@/app/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
-import { pharmaClient, sellerClient } from "@/app/lib/axios";
+import { adminClient, sellerClient } from "@/app/lib/axios";
 
 // ─── Types ────────────────────────────────────────────────────
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
@@ -323,7 +323,7 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingPharmacies(true);
     setPharmaError(null);
-    pharmaClient.get("/pharmacy-registration")
+    adminClient.get("/pharmacy-registration")
       .then(res => {
         if (cancelled) return;
         const json = res.data;
@@ -336,7 +336,7 @@ export default function AdminDashboard() {
             currentStatus = sortedReviews[0].status;
           }
           return {
-            id:        item.pharmacyId || item.pharmacyRegistrationId || Math.random().toString(),
+            id:        item.pharmacyRegistrationId || Math.random().toString(),
             requestId: item.pharmacyRegistrationId || "N/A",
             name:      item.pharmacyName || "—",
             email:     item.pharmacyEmail || "—",
@@ -397,12 +397,21 @@ export default function AdminDashboard() {
     setIsDeleting(true);
     try {
       const url = DELETE_API[activeTab](deleteTarget.id);
-      const res = await sellerClient.delete(url.replace(/https?:\/\/[^\/]+\/api\/v1/, ''));
-      if (activeTab === "seller") setSellers(prev => prev.filter(r => r.id !== deleteTarget.id));
+      const path = url.replace(/https?:\/\/[^\/]+\/api\/v1/, '');
+      
+      if (activeTab === "pharma") {
+        await adminClient.delete(path);
+        setPharmacies(prev => prev.filter(r => r.id !== deleteTarget.id));
+      } else {
+        await sellerClient.delete(path);
+        if (activeTab === "seller") setSellers(prev => prev.filter(r => r.id !== deleteTarget.id));
+      }
+      
       setDeleteTarget(null);
       showToast(`${deleteTarget.requestId} deleted successfully.`, "success");
-    } catch (err: unknown) {
-      showToast(`Failed to delete: ${err instanceof Error ? err.message : "unknown error"}`, "error");
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || "unknown error";
+      showToast(`Failed to delete: ${errorMsg}`, "error");
     } finally {
       setIsDeleting(false);
     }

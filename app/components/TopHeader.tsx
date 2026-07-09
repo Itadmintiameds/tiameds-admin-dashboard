@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { FiBell, FiLogOut, FiUser } from "react-icons/fi";
-import { authClient } from "@/app/lib/axios";
+import { adminClient } from "@/app/lib/axios";
 
 type TopHeaderProps = {
   onLogout?: () => void;
@@ -61,7 +61,7 @@ export default function TopHeader({ onLogout }: TopHeaderProps) {
                   onClick={async () => {
                     setDropdownOpen(false);
                     try {
-                      await authClient.post('/auth/logout');
+                      await adminClient.post('/auth/logout');
                     } catch (e) {
                       console.error("Logout failed:", e);
                     }

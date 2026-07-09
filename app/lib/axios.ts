@@ -2,13 +2,13 @@ import axios from 'axios';
 
 // Base instances for different backends.
 
-export const pharmaClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  withCredentials: true,
-});
+// export const pharmaClient = axios.create({
+//   baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080/api/v1',
+//   headers: {
+//     'Content-Type': 'application/json',
+//   },
+//   withCredentials: true,
+// });
 
 // export const labClient = axios.create({
 //   baseURL: process.env.NEXT_PUBLIC_LAB_BACKEND_API || 'https://api-test-aggreator.tiameds.ai',
@@ -34,7 +34,7 @@ export const sellerClient = axios.create({
   withCredentials: true,
 });
 
-export const authClient = axios.create({
+export const adminClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_ADMIN_API || process.env.NEXT_PUBLIC_AUTH_BACKEND_API || 'http://localhost:8081/api/v1',
   headers: {
     'Content-Type': 'application/json',
@@ -60,7 +60,7 @@ const setupInterceptors = (client: any) => {
         
         try {
           // Attempt to get a new access token using the HttpOnly refresh token cookie
-          await authClient.post('/auth/refresh');
+          await adminClient.post('/auth/refresh');
           
           // Retry the original failed request
           return client(originalRequest);
@@ -77,6 +77,6 @@ const setupInterceptors = (client: any) => {
   );
 };
 
-setupInterceptors(pharmaClient);
+// setupInterceptors(pharmaClient);
 setupInterceptors(sellerClient);
-setupInterceptors(authClient);
+setupInterceptors(adminClient);

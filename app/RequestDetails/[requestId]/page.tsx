@@ -2,7 +2,7 @@
 
 import TopHeader from "@/app/components/TopHeader";
 import Sidebar from "@/app/components/Sidebar";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, useParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import PharmaDetails from "@/app/components/PharmaDetails";
 import { sellerClient } from "@/app/lib/axios";
@@ -525,9 +525,11 @@ function ChangeCount({ count }: { count: number }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────
-export default function RequestDetails({ requestId }: { requestId: string }) {
+export default function RequestDetails() {
   const router       = useRouter();
   const searchParams = useSearchParams();
+  const params       = useParams();
+  const requestId    = Array.isArray(params?.requestId) ? params.requestId[0] : (params?.requestId || "");
 
   const sellerIdParam   = searchParams.get("sellerId") ?? "";
   const sellerId        = isNaN(Number(sellerIdParam)) ? sellerIdParam : Number(sellerIdParam);

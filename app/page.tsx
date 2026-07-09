@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
-import { authClient } from "@/app/lib/axios";
+import { adminClient } from "@/app/lib/axios";
 
 interface AdminLoginProps {
   onClose: () => void;
@@ -22,7 +22,7 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
     setIsLoading(true);
 
     try {
-      const res = await authClient.post('/auth/login', {
+      const res = await adminClient.post('/auth/login', {
         email: username, // API uses email
         password: password
       });

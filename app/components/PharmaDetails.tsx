@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import TopHeader from "@/app/components/TopHeader";
 import Sidebar from "@/app/components/Sidebar";
-import { pharmaClient } from "@/app/lib/axios";
+import { adminClient } from "@/app/lib/axios";
 
 const STATUS_MAP: Record<string, string> = {
   SUBMITTED: "Open",
@@ -110,7 +110,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
     let cancelled = false;
     const fetchData = async () => {
       try {
-        const res = await pharmaClient.get(`/pharmacy-registration/${sellerId}`);
+        const res = await adminClient.get(`/pharmacy-registration/${requestId}`);
         const json = res.data;
         if (!cancelled) setData(json.data ?? json);
       } catch (err: any) {
@@ -121,7 +121,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
     };
     fetchData();
     return () => { cancelled = true; };
-  }, [sellerId]);
+  }, [requestId]);
 
   const handleViewFile = (url: string, label: string, documentId?: number) => {
     setCurrentFile({ url, label, documentId });
@@ -132,7 +132,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
     if (!currentFile?.documentId) return;
     setVerifying(true);
     try {
-      const res = await pharmaClient.patch(`/pharmacy-registration/verify-document`, {
+      const res = await adminClient.patch(`/pharmacy-registration/verify-document`, {
         pharmacyRegistrationId: data.pharmacyRegistrationId,
         registrationDocumentId: currentFile.documentId,
         verified: verified
@@ -207,7 +207,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
     else if (action === "Correction") backendStatus = "CORRECTION";
 
     try {
-      await pharmaClient.post('/admin/pharmacy/review', {
+      await adminClient.post('/admin/pharmacy/review', {
         registrationId: data.pharmacyRegistrationId || requestId,
         status: backendStatus,
         remark: adminComment
@@ -217,7 +217,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
       setAdminComment("");
       
       // refresh data
-      const res = await pharmaClient.get(`/pharmacy-registration/${sellerId}`);
+      const res = await adminClient.get(`/pharmacy-registration/${requestId}`);
       setData(res.data.data ?? res.data);
     } catch (err: any) {
       console.error("Action error:", err);
@@ -259,27 +259,41 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
               <span className="text-sm font-bold text-[#2D0066]">{data.pharmacyRegistrationId || requestId}</span>
             </div>
 
-            {/* Company Details */}
-            <Section title="Company Details">
-              <Field label="Pharmacy Name" value={data.pharmacyName} />
-              <Field label="Pharmacy Type" value={data.pharmacyType} />
-              <Field label="Email Address" value={data.pharmacyEmail} />
-              <Field label="Phone Number" value={data.pharmacyPhone} />
-              <div className="md:col-span-2">
-                <Field label="Pharmacy Address" value={data.pharmacyAddress} />
-              </div>
+            {/* Organization Details */}
+            <Section title="Organization Details">
+              <Field label="Organization Name" value={data.organizationName} />
+              <Field label="Organization Type" value={data.organizationType} />
+              <Field label="Ownership Type" value={data.ownershipType} />
+              <Field label="PAN Number" value={data.organizationPanNumber} />
+              <Field label="GST Number" value={data.organizationGstNumber} />
             </Section>
 
-            {/* Compliance Details & Documents */}
-            <Section title="Compliance & Documents">
-              <Field label="Business Registration No." value={data.pharmacyBusinessRegistrationNo} />
-              <Field label="PAN Number" value={data.pharmacyPanNo} />
-              <Field label="GST Number" value={data.pharmacyGstNo} />
-              <Field label="Drug License No." value={data.pharmacyDlNo} />
-              <Field label="Drug License Expiry" value={formatDate(data.pharmacyDlExpiryDate)} />
-              
-              <div className="md:col-span-2 pt-4 border-t border-purple-100 mt-2">
-                <p className="text-sm font-bold text-[#2D0066] mb-4">Uploaded Documents</p>
+            {/* Pharmacy Details */}
+            <Section title="Pharmacy Details">
+              <Field label="Pharmacy Name" value={data.pharmacyName} />
+              <Field label="Pharmacy Type" value={data.pharmacyType} />
+              {/* <Field label="Email Address" value={data.pharmacyEmail} /> */}
+              <Field label="Phone Number" value={data.pharmacyPhone} />
+              <Field label="Pharmacy PAN" value={data.panNumber} />
+              <Field label="Pharmacy GST" value={data.gstNumber} />
+            </Section>
+
+            {/* Address Details */}
+            <Section title="Address Details">
+              <Field label="Branch" value={data.pharmacyBranch} />
+              <Field label="Building No." value={data.pharmacyBuildingNo} />
+              <Field label="Street" value={data.pharmacyStreet} />
+              <Field label="Landmark" value={data.pharmacyLandmark} />
+              <Field label="City" value={data.pharmacyCity} />
+              <Field label="Taluka" value={data.pharmacyTaluka} />
+              <Field label="District" value={data.pharmacyDistricts} />
+              <Field label="State" value={data.pharmacyState} />
+              <Field label="Pincode" value={data.pharmacyPincode} />
+            </Section>
+
+            {/* Documents */}
+            <Section title="Documents">
+              <div className="md:col-span-2 mt-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {data.pharmacyRegistrationDocuments && data.pharmacyRegistrationDocuments.length > 0 ? (
                     data.pharmacyRegistrationDocuments.map((doc: any, idx: number) => (
