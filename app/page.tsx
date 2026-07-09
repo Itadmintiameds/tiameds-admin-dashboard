@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { authClient } from "@/app/lib/axios";
 
 interface AdminLoginProps {
   onClose: () => void;
@@ -20,17 +21,23 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
     setError("");
     setIsLoading(true);
 
-    await new Promise((res) => setTimeout(res, 500));
-    
+    try {
+      const res = await authClient.post('/auth/login', {
+        email: username, // API uses email
+        password: password
+      });
 
-    if (username === "admin" && password === "admin123") {
-      setSuccess(true);
-      // Keep modal visible while new page loads — zero flicker
-      await new Promise((res) => setTimeout(res, 900));
-      router.push("/components/AdminDashboard");
-    } else {
+      if (res.data?.status === 200 || res.status === 200) {
+        setSuccess(true);
+        // Keep modal visible while new page loads — zero flicker
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        router.push("/components/AdminDashboard");
+      } else {
+        throw new Error(res.data?.message || "Invalid credentials");
+      }
+    } catch (err: any) {
       setIsLoading(false);
-      setError("Invalid username or password");
+      setError(err?.response?.data?.message || err.message || "Invalid username or password");
     }
   };
 
@@ -169,7 +176,7 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
 
                   <div className="mb-4">
                     <label className="block mb-1.5 text-sm font-semibold text-[#4B0082]">
-                      Username
+                      Email Address
                     </label>
                     <input
                       type="text"
@@ -177,7 +184,7 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
                       onChange={(e) => setUsername(e.target.value)}
                       required
                       disabled={isLoading}
-                      placeholder="Enter username"
+                      placeholder="Enter email"
                       className="w-full px-4 py-2.5 rounded-xl text-sm text-[#171717] outline-none transition-all duration-150 disabled:opacity-60"
                       style={{
                         background: "rgba(255,255,255,0.8)",
