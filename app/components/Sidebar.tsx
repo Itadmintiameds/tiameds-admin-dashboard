@@ -21,7 +21,7 @@ export default function Sidebar({ activeCategory, activeType, onSelect }: Sideba
     { key: "seller", label: "Seller" },
     { key: "buyer", label: "Buyer" },
     { key: "lab", label: "Lab" },
-    { key: "pharma", label: "Pharma" },
+    { key: "pharma", label: "Pharmacy" },
   ];
 
   const handleSelect = (category: string, type: string) => {
