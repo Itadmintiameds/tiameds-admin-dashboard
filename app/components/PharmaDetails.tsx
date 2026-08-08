@@ -268,6 +268,36 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
               <Field label="GST Number" value={data.organizationGstNumber} />
             </Section>
 
+            {/* Warehouse Details */}
+            <Section title="Warehouse Details">
+              <div className="md:col-span-2">
+                {data.pharmacyRegistrationWareHouses && data.pharmacyRegistrationWareHouses.length > 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {data.pharmacyRegistrationWareHouses.map((wh: any, idx: number) => (
+                      <div key={wh.pharmacyRegistrationWarehouseId ?? idx} className="border border-gray-100 rounded-lg p-4 bg-gray-50/50">
+                        <div className="flex items-start justify-between gap-3 mb-3 pb-2 border-b border-gray-100">
+                          <p className="text-sm font-bold text-[#2D0066]">{wh.warehouseName || `Warehouse ${idx + 1}`}</p>
+                          <span className={`shrink-0 text-xs font-semibold ${wh.active ? "text-green-600" : "text-gray-400"}`}>
+                            {wh.active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                          <Field label="Warehouse Code" value={wh.warehouseCode} />
+                          <Field label="Contact Person" value={wh.contactPersonName} />
+                          <Field label="Mobile Number" value={wh.mobileNumber} />
+                          <div className="sm:col-span-2">
+                            <Field label="Address" value={wh.warehouseAddress} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No warehouses added.</p>
+                )}
+              </div>
+            </Section>
+
             {/* Pharmacy Details */}
             <Section title="Pharmacy Details">
               <Field label="Pharmacy Name" value={data.pharmacyName} />
