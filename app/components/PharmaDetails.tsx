@@ -191,6 +191,7 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
   const currentStatus = sortedReviews[0]?.status || "SUBMITTED";
   const displayStatus = normalizeStatus(currentStatus);
   const isLocked = ["APPROVED", "CLOSED", "REJECTED", "ACCEPT", "REJECT"].includes(currentStatus);
+  const isAwaitingCorrection = ["CORRECTION", "CORRECTION_NEEDED"].includes(currentStatus?.toUpperCase());
   const hasUnverifiedDocs = data.pharmacyRegistrationDocuments?.some((doc: any) => doc.verified !== true);
 
   const handleAction = async (action: string) => {
@@ -402,6 +403,16 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
                   </div>
                 )}
 
+                {isAwaitingCorrection ? (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                    <div>
+                      <p className="font-semibold text-amber-700 text-sm">Corrections requested — awaiting applicant response</p>
+                      <p className="text-amber-600 text-sm mt-0.5">No further action can be taken until the applicant resubmits the requested corrections.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Comments <span className="text-red-500">*</span></label>
                   <textarea value={adminComment} rows={4} readOnly={isLocked}
@@ -427,6 +438,8 @@ export default function PharmaDetails({ requestId, sellerId }: { requestId: stri
                       icon={<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>} />
                   </div>
                 </div>
+                  </>
+                )}
               </div>
             </div>
             
