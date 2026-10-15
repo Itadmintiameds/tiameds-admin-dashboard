@@ -2,6 +2,7 @@
 
 import TopHeader from "@/app/components/TopHeader";
 import Sidebar from "@/app/components/Sidebar";
+import PharmaMigration from "@/app/components/DataMigration/PharmaMigration";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { adminClient, sellerClient } from "@/app/lib/axios";
@@ -10,6 +11,7 @@ import { adminClient, sellerClient } from "@/app/lib/axios";
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
 type SortField   = "requestId" | "name" | "email" | "date" | "status";
 type SortOrder   = "asc" | "desc";
+type Category    = "requests" | "updates" | "migration";
 type Request     = { id: number | string; requestId: string; name: string; email: string; date: string; status: string };
 
 type PendingProfileUpdate = {
@@ -31,7 +33,7 @@ const DELETE_API: Record<RequestType, (id: number | string) => string> = {
   seller: (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers/both/${id}`,
   buyer:  (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-buyers/${id}`,
   lab:    (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-labs/${id}`,
-  pharma: (id) => `${process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080'}/api/v1/pharmacy-registration/${id}`,
+  pharma: (id) => `${process.env.NEXT_PUBLIC_ADMIN_API || 'http://localhost:8081/api/v1'}/pharmacy-registration/${id}`,
 };
 
 const STATUS_MAP: Record<string, string> = {
@@ -238,7 +240,7 @@ const NAV_BTN = "px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray
 export default function AdminDashboard() {
   const router = useRouter();
 
-  const [activeCategory, setActiveCategory] = useState<"requests" | "updates">("requests");
+  const [activeCategory, setActiveCategory] = useState<Category>("requests");
   const [activeTab,    setActiveTab]    = useState<RequestType>("seller");
   const [sortField,    setSortField]    = useState<SortField>("requestId");
   const [sortOrder,    setSortOrder]    = useState<SortOrder>("desc");
@@ -251,7 +253,7 @@ export default function AdminDashboard() {
       const params = new URLSearchParams(window.location.search);
       const cat = params.get("category");
       const tab = params.get("tab");
-      if (cat) setActiveCategory(cat as "requests" | "updates");
+      if (cat) setActiveCategory(cat as Category);
       if (tab) setActiveTab(tab as RequestType);
     }
   }, []);
@@ -319,7 +321,7 @@ export default function AdminDashboard() {
 
   // Fetch pharmacies
   useEffect(() => {
-    if (activeTab !== "pharma") return;
+    if (activeTab !== "pharma" || activeCategory !== "requests") return;
     let cancelled = false;
     setLoadingPharmacies(true);
     setPharmaError(null);
@@ -348,7 +350,7 @@ export default function AdminDashboard() {
       .catch(err => { if (!cancelled) setPharmaError(err.message ?? "Failed to fetch pharmacies"); })
       .finally(() => { if (!cancelled) setLoadingPharmacies(false); });
     return () => { cancelled = true; };
-  }, [activeTab, fetchTick]);
+  }, [activeTab, activeCategory, fetchTick]);
 
   // Fetch pending profile updates
   useEffect(() => {
@@ -474,7 +476,7 @@ export default function AdminDashboard() {
         activeCategory={activeCategory} 
         activeType={activeTab} 
         onSelect={(cat, type) => {
-          setActiveCategory(cat as "requests" | "updates");
+          setActiveCategory(cat as Category);
           setActiveTab(type as RequestType);
         }} 
       />
@@ -775,6 +777,11 @@ export default function AdminDashboard() {
             </div>
             </div>
           )}
+
+          {/* ══════════════════════════════════════════════════
+              DATA MIGRATION
+          ══════════════════════════════════════════════════ */}
+          {activeCategory === "migration" && activeTab === "pharma" && <PharmaMigration />}
 
         </div>
       </main>

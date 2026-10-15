@@ -1,14 +1,25 @@
 import axios from 'axios';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    // Endpoints gated by X-Upload-Passcode return 401 for a bad passcode, not an expired
+    // session — skip the refresh/redirect-to-login handling for them.
+    skipAuthRefresh?: boolean;
+  }
+}
+
+// Header for the passcode-gated pharma operator endpoints (bulk upload, org directory)
+export const UPLOAD_PASSCODE_HEADERS = { 'X-Upload-Passcode': process.env.NEXT_PUBLIC_UPLOAD_PASSCODE || '' };
+
 // Base instances for different backends.
 
-// export const pharmaClient = axios.create({
-//   baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080/api/v1',
-//   headers: {
-//     'Content-Type': 'application/json',
-//   },
-//   withCredentials: true,
-// });
+export const pharmaClient = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_PHARMA_BACKEND_API || 'http://localhost:8080/api/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true,
+});
 
 // export const labClient = axios.create({
 //   baseURL: process.env.NEXT_PUBLIC_LAB_BACKEND_API || 'https://api-test-aggreator.tiameds.ai',
@@ -50,7 +61,7 @@ const setupInterceptors = (client: any) => {
       const originalRequest = error.config;
       
       // If unauthorized (401) and not already retried
-      if (error.response?.status === 401 && !originalRequest._retry) {
+      if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.skipAuthRefresh) {
         // Don't intercept refresh token calls themselves to avoid infinite loops
         if (originalRequest.url?.includes('/auth/refresh')) {
           return Promise.reject(error);
@@ -77,6 +88,6 @@ const setupInterceptors = (client: any) => {
   );
 };
 
-// setupInterceptors(pharmaClient);
+setupInterceptors(pharmaClient);
 setupInterceptors(sellerClient);
 setupInterceptors(adminClient);
