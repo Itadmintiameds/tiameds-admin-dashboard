@@ -105,7 +105,8 @@ function ConfirmMigrateModal({ target, fileName, preview, onConfirm, onCancel }:
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      {/* Explicit width: globals.css defines --spacing-md (16px), which Tailwind v4 uses for max-w-md */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[440px] p-6">
         <div className="flex justify-center mb-4">
           <div className="w-12 h-12 bg-purple-100 text-[#4B0082] rounded-full flex items-center justify-center">
             <FiDatabase className="w-6 h-6" />
