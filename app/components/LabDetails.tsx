@@ -1,0 +1,339 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import TopHeader from "@/app/components/TopHeader";
+import Sidebar from "@/app/components/Sidebar";
+import { labClient } from "@/app/lib/axios";
+
+type LabRequest = {
+  labId: number;
+  labName?: string;
+  labType?: string;
+  labEmail?: string;
+  labPhone?: string;
+  city?: string;
+  state?: string;
+  labServices?: string;
+  organizationName?: string;
+  organizationType?: string;
+  organizationPan?: string;
+  organizationGstin?: string;
+  licenseNumber?: string;
+  establishmentRegistrationNumber?: string;
+  issuingAuthority?: string;
+  issuingDate?: string;
+  expiryDate?: string;
+  labLogo?: string;
+  establishmentRegistrationCertificate?: string;
+  organizationGstinCertificate?: string;
+  gstinCertificate?: string;
+  biomedicalWasteAuthorizationCertificate?: string;
+  nablAccreditationCertificate?: string;
+  applicantName?: string;
+  applicantEmail?: string;
+  approvalStatus: "PENDING" | "APPROVED" | "REJECTED";
+  approvalRequestedAt?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+};
+
+const LAB_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+const MAX_REASON = 1000;
+
+const STATUS_STYLE: Record<string, { label: string; badge: string; dot: string }> = {
+  PENDING:  { label: "Pending Review", badge: "bg-yellow-50 text-yellow-700 ring-yellow-200", dot: "bg-yellow-500" },
+  APPROVED: { label: "Approved",       badge: "bg-green-50 text-green-700 ring-green-200",   dot: "bg-green-500"  },
+  REJECTED: { label: "Rejected",       badge: "bg-red-50 text-red-700 ring-red-200",         dot: "bg-red-500"    },
+};
+
+const DOCUMENTS: { key: keyof LabRequest; label: string }[] = [
+  { key: "labLogo",                                 label: "Lab Logo" },
+  { key: "organizationGstinCertificate",            label: "Organization GSTIN Certificate" },
+  { key: "gstinCertificate",                        label: "Lab GSTIN Certificate" },
+  { key: "establishmentRegistrationCertificate",    label: "Establishment Registration Certificate" },
+  { key: "biomedicalWasteAuthorizationCertificate", label: "Biomedical Waste Authorization Certificate" },
+  { key: "nablAccreditationCertificate",            label: "NABL Accreditation Certificate" },
+];
+
+const formatDateTimeIST = (s?: string): string => {
+  if (!s) return "—";
+  const d = new Date(s.includes("T") && !s.endsWith("Z") ? s + "Z" : s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+};
+
+const isImageUrl = (url: string) => /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url);
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border border-purple-200 rounded-xl p-5">
+      <div className="mb-4 pb-2 border-b border-purple-100">
+        <h2 className="text-lg font-bold text-[#2D0066]">{title}</h2>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5">{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">{label}</p>
+      <p className="font-medium text-sm text-gray-800 break-words">{value || "—"}</p>
+    </div>
+  );
+}
+
+export default function LabDetails({ labId }: { labId: string | number | null }) {
+  const router = useRouter();
+  const [lab, setLab] = useState<LabRequest | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [fetchTick, setFetchTick] = useState(0);
+
+  const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
+  const [comment, setComment] = useState("");
+  const [showCommentError, setShowCommentError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // There is no single-request endpoint, so look the lab up across the three status lists
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(LAB_STATUSES.map(s =>
+      labClient.get("/platform-admin/onboarding-requests", { params: { status: s } }).then(r => (r.data?.data ?? []) as LabRequest[])
+    ))
+      .then(results => {
+        if (cancelled) return;
+        const found = results.flat().find(l => String(l.labId) === String(labId));
+        if (found) { setLab(found); setError(null); }
+        else setError("Lab onboarding request not found.");
+      })
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.message ?? err.message ?? "Failed to load request"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [labId, fetchTick]);
+
+  const review = useCallback(async (action: "approve" | "reject") => {
+    if (!lab) return;
+    setSubmitting(true);
+    try {
+      await labClient.post(
+        `/platform-admin/onboarding-requests/${lab.labId}/${action}`,
+        action === "reject" ? { reason: comment.trim() } : { comments: comment.trim() }
+      );
+      showToast(action === "approve" ? "Lab approved. The applicant has been notified." : "Lab request rejected.", "success");
+      setComment("");
+      setFetchTick(t => t + 1);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showToast(e.response?.data?.message ?? e.message ?? "Action failed", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [lab, comment]);
+
+  const status = lab ? STATUS_STYLE[lab.approvalStatus] : null;
+  const isPending = lab?.approvalStatus === "PENDING";
+
+  const handleAction = (action: "approve" | "reject") => {
+    if (!comment.trim()) { setShowCommentError(true); return; }
+    setShowCommentError(false);
+    review(action);
+  };
+
+  return (
+    <div className="flex bg-gray-50 min-h-screen font-sans">
+      <Sidebar
+        activeCategory="requests"
+        activeType="lab"
+        onSelect={(cat, type) => router.push(`/components/AdminDashboard?category=${cat}&tab=${type}`)}
+      />
+      <div className="flex-1 ml-64 flex flex-col min-h-screen">
+        <TopHeader onLogout={() => router.push("/")} />
+
+        {toast && (
+          <div
+            className={`fixed top-5 right-5 px-4 py-3 rounded-xl shadow-lg text-sm font-medium border
+              ${toast.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-red-50 text-red-800 border-red-200"}`}
+            style={{ zIndex: 99999 }}
+          >
+            {toast.message}
+          </div>
+        )}
+
+        <main className="flex-1 bg-[#F7F2FB] px-5 pb-10 pt-10">
+          <div className="max-w-5xl mx-auto bg-white rounded-3xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] p-8 space-y-6">
+            <button
+              onClick={() => router.push("/components/AdminDashboard?category=requests&tab=lab")}
+              className="text-sm text-gray-500 hover:text-[#4B0082] transition-colors"
+            >
+              ← Back to Lab Requests
+            </button>
+
+            {loading ? (
+              <div className="py-16 text-center text-sm text-gray-400">Loading request…</div>
+            ) : error || !lab || !status ? (
+              <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                <strong>Failed to load:</strong> {error}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start justify-between flex-wrap gap-3">
+                  <div>
+                    <h1 className="text-2xl font-bold text-[#2D0066]">{lab.labName || "Lab"}</h1>
+                    <p className="text-gray-500 mt-1 text-sm">
+                      LAB-{lab.labId} · Submitted {formatDateTimeIST(lab.approvalRequestedAt)} IST
+                    </p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${status.badge}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                    {status.label}
+                  </span>
+                </div>
+
+                {lab.approvalStatus === "REJECTED" && lab.rejectionReason && (
+                  <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                    <strong>Rejection reason:</strong> {lab.rejectionReason}
+                  </div>
+                )}
+
+                <Section title="Applicant">
+                  <Field label="Name" value={lab.applicantName} />
+                  <Field label="Email" value={lab.applicantEmail} />
+                </Section>
+
+                <Section title="Lab Details">
+                  <Field label="Lab Name" value={lab.labName} />
+                  <Field label="Lab Type" value={lab.labType} />
+                  <Field label="Email" value={lab.labEmail} />
+                  <Field label="Phone" value={lab.labPhone} />
+                  <Field label="City" value={lab.city} />
+                  <Field label="State" value={lab.state} />
+                  <Field label="Services" value={lab.labServices} />
+                </Section>
+
+                <Section title="Organization">
+                  <Field label="Organization Name" value={lab.organizationName} />
+                  <Field label="Organization Type" value={lab.organizationType} />
+                  <Field label="PAN" value={lab.organizationPan} />
+                  <Field label="GSTIN" value={lab.organizationGstin} />
+                </Section>
+
+                <Section title="Compliance">
+                  <Field label="License Number" value={lab.licenseNumber} />
+                  <Field label="Establishment Registration No." value={lab.establishmentRegistrationNumber} />
+                  <Field label="Issuing Authority" value={lab.issuingAuthority} />
+                  <Field label="Issuing Date" value={lab.issuingDate} />
+                  <Field label="Expiry Date" value={lab.expiryDate} />
+                </Section>
+
+                <div className="border border-purple-200 rounded-xl p-5">
+                  <div className="mb-4 pb-2 border-b border-purple-100">
+                    <h2 className="text-lg font-bold text-[#2D0066]">Documents</h2>
+                  </div>
+                  <ul className="divide-y divide-gray-100">
+                    {DOCUMENTS.map(({ key, label }) => {
+                      const url = lab[key] as string | undefined;
+                      return (
+                        <li key={key} className="flex items-center justify-between py-3 gap-4">
+                          <span className="text-sm font-medium text-gray-700">{label}</span>
+                          {url ? (
+                            <button
+                              onClick={() => setPreview({ url, label })}
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#4B0082] border border-purple-200 bg-purple-50 hover:bg-[#4B0082] hover:text-white transition-all"
+                            >
+                              View
+                            </button>
+                          ) : (
+                            <span className="text-xs text-gray-400">Not provided</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+
+                {isPending ? (
+                  <div className="border border-purple-200 rounded-xl p-5">
+                    <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+                      Comments <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={comment}
+                      rows={4}
+                      maxLength={MAX_REASON}
+                      onChange={e => { setComment(e.target.value); setShowCommentError(false); }}
+                      placeholder="Enter your comments here..."
+                      className={`w-full border rounded-xl p-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition-all resize-none bg-white ${showCommentError ? "border-red-400 focus:ring-red-400" : "border-gray-200 focus:ring-[#4B0082]"}`}
+                    />
+                    {showCommentError && (
+                      <p className="text-xs text-red-500 mt-1.5">Please add a comment before taking action</p>
+                    )}
+                    <div className="flex gap-3 justify-end pt-4">
+                      <button
+                        onClick={() => handleAction("reject")}
+                        disabled={submitting}
+                        className="px-6 py-3 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 shadow-md disabled:opacity-50 transition-all"
+                      >
+                        {submitting ? "Please wait…" : "Reject"}
+                      </button>
+                      <button
+                        onClick={() => handleAction("approve")}
+                        disabled={submitting}
+                        className="px-6 py-3 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 shadow-md disabled:opacity-50 transition-all"
+                      >
+                        {submitting ? "Please wait…" : "Approve"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 text-right">
+                    Reviewed {formatDateTimeIST(lab.reviewedAt)} IST — no further action available.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+
+      {/* Document preview */}
+      {preview && (
+        <div className="fixed inset-0 flex items-center justify-center p-6" style={{ zIndex: 9999 }}>
+          <div className="absolute inset-0 bg-black/50" onClick={() => setPreview(null)} />
+          <div className="relative bg-white rounded-xl shadow-xl w-full max-w-4xl h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+              <h3 className="font-semibold text-[#2D0066] text-sm">{preview.label}</h3>
+              <div className="flex items-center gap-4">
+                <a href={preview.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#4B0082] hover:underline">
+                  Open in new tab
+                </a>
+                <button onClick={() => setPreview(null)} className="text-gray-400 hover:text-gray-700 text-lg leading-none">×</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 flex items-center justify-center">
+              {isImageUrl(preview.url) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={preview.url} alt={preview.label} className="max-w-full max-h-full object-contain" />
+              ) : (
+                <iframe src={preview.url} title={preview.label} className="w-full h-full" />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

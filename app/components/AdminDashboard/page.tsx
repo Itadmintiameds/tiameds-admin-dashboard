@@ -4,7 +4,7 @@ import TopHeader from "@/app/components/TopHeader";
 import Sidebar from "@/app/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
-import { adminClient, sellerClient } from "@/app/lib/axios";
+import { adminClient, sellerClient, labClient } from "@/app/lib/axios";
 
 // ─── Types ────────────────────────────────────────────────────
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
@@ -76,13 +76,7 @@ const DEMO_BUYERS: Request[] = [
   { id: 14, requestId: "BUY-2004", name: "MNO Buyers",  email: "mno@buyers.com", date: "2025-10-05", status: "Rejected"           },
   { id: 15, requestId: "BUY-2005", name: "PQR Buyers",  email: "pqr@buyers.com", date: "2026-02-01", status: "Corrections Needed" },
 ];
-const DEMO_LABS: Request[] = [
-  { id: 21, requestId: "LAB-3001", name: "ABC Labs", email: "abc@lab.com", date: "2026-01-22", status: "Closed"             },
-  { id: 22, requestId: "LAB-3002", name: "XYZ Labs", email: "xyz@lab.com", date: "2025-12-12", status: "In Progress"        },
-  { id: 23, requestId: "LAB-3003", name: "JKL Labs", email: "jkl@lab.com", date: "2025-11-08", status: "Open"               },
-  { id: 24, requestId: "LAB-3004", name: "MNO Labs", email: "mno@lab.com", date: "2025-09-14", status: "Rejected"           },
-  { id: 25, requestId: "LAB-3005", name: "PQR Labs", email: "pqr@lab.com", date: "2026-02-10", status: "Corrections Needed" },
-];
+const LAB_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────
 const normalizeStatus = (raw: string) => STATUS_MAP[raw?.toUpperCase()] ?? raw;
@@ -266,7 +260,10 @@ export default function AdminDashboard() {
   const [pharmaError,       setPharmaError]       = useState<string | null>(null);
 
   const [buyers] = useState<Request[]>(DEMO_BUYERS);
-  const [labs]   = useState<Request[]>(DEMO_LABS);
+
+  const [labs,        setLabs]        = useState<Request[]>([]);
+  const [loadingLabs, setLoadingLabs] = useState(false);
+  const [labError,    setLabError]    = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<Request | null>(null);
   const [isDeleting,   setIsDeleting]   = useState(false);
@@ -347,6 +344,33 @@ export default function AdminDashboard() {
       })
       .catch(err => { if (!cancelled) setPharmaError(err.message ?? "Failed to fetch pharmacies"); })
       .finally(() => { if (!cancelled) setLoadingPharmacies(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, fetchTick]);
+
+  // Fetch lab onboarding requests (the endpoint filters by one status, so fetch all three and merge)
+  useEffect(() => {
+    if (activeTab !== "lab") return;
+    let cancelled = false;
+    setLoadingLabs(true);
+    setLabError(null);
+    Promise.all(LAB_STATUSES.map(s =>
+      labClient.get("/platform-admin/onboarding-requests", { params: { status: s } }).then(r => r.data?.data ?? [])
+    ))
+      .then(results => {
+        if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const list: any[] = results.flat();
+        setLabs(list.map(item => ({
+          id:        item.labId,
+          requestId: `LAB-${item.labId}`,
+          name:      item.applicantName ?? "—",
+          email:     item.applicantEmail ?? "—",
+          date:      item.approvalRequestedAt ? item.approvalRequestedAt.split("T")[0] : "—",
+          status:    normalizeStatus(item.approvalStatus ?? ""),
+        })));
+      })
+      .catch(err => { if (!cancelled) setLabError(err?.response?.data?.message ?? err.message ?? "Failed to fetch labs"); })
+      .finally(() => { if (!cancelled) setLoadingLabs(false); });
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
 
@@ -437,9 +461,9 @@ export default function AdminDashboard() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(currentPage, totalPages);
   const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const isLoading  = (activeTab === "seller" && loadingSellers) || (activeTab === "pharma" && loadingPharmacies);
-  const hasError   = (activeTab === "seller" && !!sellerError) || (activeTab === "pharma" && !!pharmaError);
-  const errorMsg   = activeTab === "seller" ? sellerError : pharmaError;
+  const isLoading  = (activeTab === "seller" && loadingSellers) || (activeTab === "pharma" && loadingPharmacies) || (activeTab === "lab" && loadingLabs);
+  const hasError   = (activeTab === "seller" && !!sellerError) || (activeTab === "pharma" && !!pharmaError) || (activeTab === "lab" && !!labError);
+  const errorMsg   = activeTab === "seller" ? sellerError : activeTab === "lab" ? labError : pharmaError;
 
   // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
@@ -720,10 +744,17 @@ export default function AdminDashboard() {
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <button title="Delete request" onClick={() => setDeleteTarget(item)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">
-                                  <IconTrash />Delete
-                                </button>
+                                {activeTab === "lab" ? (
+                                  <button onClick={() => handleRowClick(item)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#4B0082] border border-purple-200 bg-purple-50 hover:bg-[#4B0082] hover:text-white hover:border-[#4B0082] transition-all duration-150">
+                                    Review
+                                  </button>
+                                ) : (
+                                  <button title="Delete request" onClick={() => setDeleteTarget(item)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">
+                                    <IconTrash />Delete
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );

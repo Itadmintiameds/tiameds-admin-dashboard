@@ -5,6 +5,7 @@ import Sidebar from "@/app/components/Sidebar";
 import { useRouter, useSearchParams, useParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import PharmaDetails from "@/app/components/PharmaDetails";
+import LabDetails from "@/app/components/LabDetails";
 import { sellerClient } from "@/app/lib/axios";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -954,6 +955,9 @@ export default function RequestDetails() {
   // ── Render ──
   if (entityType === "pharma") {
     return <PharmaDetails requestId={requestId} sellerId={sellerId} />;
+  }
+  if (entityType === "lab") {
+    return <LabDetails labId={sellerId} />;
   }
 
   return (
