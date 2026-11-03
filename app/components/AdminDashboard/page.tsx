@@ -5,6 +5,7 @@ import Sidebar from "@/app/components/Sidebar";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { adminClient, sellerClient, labClient } from "@/app/lib/axios";
+import { DOCUMENT_TYPE_LABEL, LAB_UPDATE_STATUSES, type LabCertificateRequest } from "@/app/components/LabProfileUpdateDetails";
 
 // ─── Types ────────────────────────────────────────────────────
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
@@ -77,6 +78,11 @@ const DEMO_BUYERS: Request[] = [
   { id: 15, requestId: "BUY-2005", name: "PQR Buyers",  email: "pqr@buyers.com", date: "2026-02-01", status: "Corrections Needed" },
 ];
 const LAB_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+const LAB_UPDATE_STATUS_STYLE: Record<string, { label: string; badge: string; dot: string }> = {
+  PENDING:  { label: "Pending Review", badge: "bg-yellow-50 text-yellow-700 ring-yellow-200", dot: "bg-yellow-500" },
+  APPROVED: { label: "Approved",       badge: "bg-green-50 text-green-700 ring-green-200",   dot: "bg-green-500"  },
+  REJECTED: { label: "Rejected",       badge: "bg-red-50 text-red-700 ring-red-200",         dot: "bg-red-500"    },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────
 const normalizeStatus = (raw: string) => STATUS_MAP[raw?.toUpperCase()] ?? raw;
@@ -274,6 +280,11 @@ export default function AdminDashboard() {
   const [pendingError,     setPendingError]     = useState<string | null>(null);
   const [pendingFetchTick, setPendingFetchTick] = useState(0);
 
+  // Lab profile updates = certificate requests (the only lab edits that go through platform-admin review)
+  const [labUpdates,        setLabUpdates]        = useState<LabCertificateRequest[]>([]);
+  const [loadingLabUpdates, setLoadingLabUpdates] = useState(false);
+  const [labUpdateError,    setLabUpdateError]    = useState<string | null>(null);
+
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
 
   const showToast = (message: string, type: "success" | "error") => {
@@ -408,6 +419,25 @@ export default function AdminDashboard() {
     return () => { cancelled = true; };
   }, [pendingFetchTick]);
 
+  // Fetch lab profile updates (certificate requests; one status per call, so fetch all three and merge)
+  useEffect(() => {
+    if (activeCategory !== "updates" || activeTab !== "lab") return;
+    let cancelled = false;
+    setLoadingLabUpdates(true);
+    setLabUpdateError(null);
+    Promise.all(LAB_UPDATE_STATUSES.map(s =>
+      labClient.get("/platform-admin/certificate-requests", { params: { status: s } }).then(r => (r.data?.data ?? []) as LabCertificateRequest[])
+    ))
+      .then(results => {
+        if (cancelled) return;
+        const list = results.flat().sort((a, b) => new Date(b.requestedAt ?? 0).getTime() - new Date(a.requestedAt ?? 0).getTime());
+        setLabUpdates(list);
+      })
+      .catch(err => { if (!cancelled) setLabUpdateError(err?.response?.data?.message ?? err.message ?? "Failed to fetch lab updates"); })
+      .finally(() => { if (!cancelled) setLoadingLabUpdates(false); });
+    return () => { cancelled = true; };
+  }, [activeCategory, activeTab, pendingFetchTick]);
+
   // Reset pagination when filters change
   useEffect(() => { setCurrentPage(1); }, [activeTab, searchTerm, statusFilter, sortField, sortOrder]);
 
@@ -482,6 +512,15 @@ export default function AdminDashboard() {
    *   - isPendingUpdate = "true"       ← the critical flag that was missing / inconsistent
    *   - sellerEmail                    ← kept for any downstream email usage
    */
+  const handleLabUpdateRowClick = (item: LabCertificateRequest) => {
+    const params = new URLSearchParams({
+      sellerId:        String(item.id),
+      entityType:      "lab",
+      isPendingUpdate: "true",
+    });
+    router.push(`/RequestDetails/LABUPD-${item.id}?${params.toString()}`);
+  };
+
   const handlePendingRowClick = (item: PendingProfileUpdate) => {
     const params = new URLSearchParams({
       sellerId:        String(item.pendingSellerId),
@@ -551,19 +590,19 @@ export default function AdminDashboard() {
                 </div>
                 <button
                   onClick={() => setPendingFetchTick(t => t + 1)}
-                  disabled={loadingPending}
+                  disabled={activeTab === "lab" ? loadingLabUpdates : loadingPending}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 text-xs font-medium text-gray-500 hover:bg-[#f0ebff] hover:border-[#4B0082] hover:text-[#4B0082] transition-all disabled:opacity-50"
                 >
-                  <IconRefresh className={`w-3.5 h-3.5 ${loadingPending ? "animate-spin" : ""}`} />
+                  <IconRefresh className={`w-3.5 h-3.5 ${(activeTab === "lab" ? loadingLabUpdates : loadingPending) ? "animate-spin" : ""}`} />
                   Refresh
                 </button>
               </div>
             </div>
 
-            {pendingError && (
+            {(activeTab === "lab" ? labUpdateError : pendingError) && (
               <div className="mx-8 mb-4 flex items-start gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
                 <IconWarning />
-                <span><strong>Failed to load:</strong> {pendingError}</span>
+                <span><strong>Failed to load:</strong> {activeTab === "lab" ? labUpdateError : pendingError}</span>
               </div>
             )}
 
@@ -575,14 +614,53 @@ export default function AdminDashboard() {
                       <tr className="bg-[#faf7ff] border-b border-gray-100">
                         <th className="px-6 py-4 text-left font-semibold text-gray-500 w-16 whitespace-nowrap">Sl. No</th>
                         <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Request ID</th>
-                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Seller Name</th>
-                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Email</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">{activeTab === "lab" ? "Lab Name" : "Seller Name"}</th>
+                        <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">{activeTab === "lab" ? "Updated Document" : "Email"}</th>
                         <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Submitted At (IST)</th>
                         <th className="px-6 py-4 text-left font-semibold text-gray-500 whitespace-nowrap">Status</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-50">
-                      {activeTab !== "seller" ? (
+                      {activeTab === "lab" ? (
+                        loadingLabUpdates ? (
+                          <TableSkeleton cols={6} />
+                        ) : labUpdates.length > 0 ? (
+                          labUpdates.map((item, idx) => {
+                            const st = LAB_UPDATE_STATUS_STYLE[item.status] ?? LAB_UPDATE_STATUS_STYLE.PENDING;
+                            return (
+                              <tr
+                                key={item.id}
+                                onClick={() => handleLabUpdateRowClick(item)}
+                                className="hover:bg-[#faf7ff] transition-colors cursor-pointer group"
+                              >
+                                <td className="px-6 py-4 text-gray-400 font-medium text-xs">{idx + 1}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200 group-hover:bg-violet-100 group-hover:text-violet-900 transition-colors">
+                                    LABUPD-{item.id}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 font-medium text-gray-800 whitespace-nowrap">{item.labName ?? `LAB-${item.labId}`}</td>
+                                <td className="px-6 py-4 text-gray-600">{DOCUMENT_TYPE_LABEL[item.documentType] ?? item.documentType}</td>
+                                <td className="px-6 py-4 text-gray-500 text-xs whitespace-nowrap tabular-nums">
+                                  {formatDateTimeIST(item.requestedAt ?? "")}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap">
+                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ring-1 ${st.badge}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${st.dot}`} />
+                                    {st.label}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : !labUpdateError ? (
+                          <tr>
+                            <td colSpan={6} className="px-5 py-12 text-center">
+                              <p className="text-sm text-gray-400 font-medium">No lab profile updates</p>
+                            </td>
+                          </tr>
+                        ) : null
+                      ) : activeTab !== "seller" ? (
                         <tr>
                           <td colSpan={6} className="px-5 py-12 text-center">
                             <p className="text-sm text-gray-500 font-medium">Updates for {activeTab} are not currently implemented.</p>

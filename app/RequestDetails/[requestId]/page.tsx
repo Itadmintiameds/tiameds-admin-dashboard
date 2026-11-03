@@ -6,6 +6,7 @@ import { useRouter, useSearchParams, useParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import PharmaDetails from "@/app/components/PharmaDetails";
 import LabDetails from "@/app/components/LabDetails";
+import LabProfileUpdateDetails from "@/app/components/LabProfileUpdateDetails";
 import { sellerClient } from "@/app/lib/axios";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -957,6 +958,9 @@ export default function RequestDetails() {
     return <PharmaDetails requestId={requestId} sellerId={sellerId} />;
   }
   if (entityType === "lab") {
+    if (searchParams.get("isPendingUpdate") === "true") {
+      return <LabProfileUpdateDetails requestId={sellerId} />;
+    }
     return <LabDetails labId={sellerId} />;
   }
 
