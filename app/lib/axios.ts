@@ -27,7 +27,7 @@ import axios from 'axios';
 // Lab backend: /platform-admin/** endpoints are unauthenticated (restricted at network level),
 // so no credentials and no token-refresh interceptor here.
 export const labClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_LAB_BACKEND_API || 'http://localhost:8080/api/v1',
+  baseURL: process.env.NEXT_PUBLIC_LAB_BACKEND_API || 'https://api.tiameds.ai/api/v1/' || 'http://localhost:8080/api/v1' ,
   headers: {
     'Content-Type': 'application/json',
   },
