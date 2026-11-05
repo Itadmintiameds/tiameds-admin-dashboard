@@ -16,11 +16,16 @@ export default function Sidebar({ activeCategory, activeType, onSelect }: Sideba
   const pathname = usePathname();
   const [requestsOpen, setRequestsOpen] = useState(true);
   const [updatesOpen, setUpdatesOpen] = useState(true);
+  const [migrationOpen, setMigrationOpen] = useState(true);
 
   const navItems = [
     { key: "seller", label: "Seller" },
     { key: "buyer", label: "Buyer" },
     { key: "lab", label: "Lab" },
+    { key: "pharma", label: "Pharmacy" },
+  ];
+
+  const migrationItems = [
     { key: "pharma", label: "Pharmacy" },
   ];
 
@@ -84,7 +89,7 @@ export default function Sidebar({ activeCategory, activeType, onSelect }: Sideba
           </div>
 
           {/* Profile Updates Section */}
-          <div>
+          <div className="mb-4">
             <button
               onClick={() => setUpdatesOpen(!updatesOpen)}
               className="w-full flex items-center justify-between px-2 py-2 text-sm font-medium text-gray-700 hover:text-[#4B0082] rounded-md transition-colors"
@@ -101,6 +106,38 @@ export default function Sidebar({ activeCategory, activeType, onSelect }: Sideba
                     <button
                       key={`upd-${item.key}`}
                       onClick={() => handleSelect("updates", item.key)}
+                      className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
+                        isActive
+                          ? "bg-purple-50 text-[#4B0082] font-semibold"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Data Migration Section */}
+          <div>
+            <button
+              onClick={() => setMigrationOpen(!migrationOpen)}
+              className="w-full flex items-center justify-between px-2 py-2 text-sm font-medium text-gray-700 hover:text-[#4B0082] rounded-md transition-colors"
+            >
+              <span>Data Migration</span>
+              {migrationOpen ? <FiChevronDown /> : <FiChevronRight />}
+            </button>
+
+            {migrationOpen && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 pl-2">
+                {migrationItems.map((item) => {
+                  const isActive = activeCategory === "migration" && activeType === item.key;
+                  return (
+                    <button
+                      key={`mig-${item.key}`}
+                      onClick={() => handleSelect("migration", item.key)}
                       className={`w-full text-left px-3 py-2 text-sm rounded-md transition-colors ${
                         isActive
                           ? "bg-purple-50 text-[#4B0082] font-semibold"
