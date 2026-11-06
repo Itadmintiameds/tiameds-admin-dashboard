@@ -5,6 +5,7 @@ import Sidebar from "@/app/components/Sidebar";
 import { useRouter, useSearchParams, useParams } from "next/navigation";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import PharmaDetails from "@/app/components/PharmaDetails";
+import BuyerDetails from "@/app/components/BuyerDetails";
 import LabDetails from "@/app/components/LabDetails";
 import LabProfileUpdateDetails from "@/app/components/LabProfileUpdateDetails";
 import { sellerClient } from "@/app/lib/axios";
@@ -576,7 +577,7 @@ export default function RequestDetails() {
     let cancelled = false;
 
     const fetchAll = async () => {
-      if (entityType === "pharma") {
+      if (entityType === "pharma" || entityType === "buyer") {
         setLoading(false);
         return;
       } else if (isProfileUpdate) {
@@ -956,6 +957,9 @@ export default function RequestDetails() {
   // ── Render ──
   if (entityType === "pharma") {
     return <PharmaDetails requestId={requestId} sellerId={sellerId} />;
+  }
+  if (entityType === "buyer") {
+    return <BuyerDetails requestId={requestId} buyerId={sellerId} />;
   }
   if (entityType === "lab") {
     if (searchParams.get("isPendingUpdate") === "true") {

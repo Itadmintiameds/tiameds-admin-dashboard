@@ -598,7 +598,6 @@ export default function AdminDashboard() {
 
   // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
-    if (activeTab === "buyer") return; // no buyer detail page yet
     router.push(`/RequestDetails/${item.requestId}?sellerId=${item.id}&entityType=${activeTab}`);
   };
 
@@ -944,16 +943,11 @@ export default function AdminDashboard() {
                                   ) : <span className="text-xs text-gray-400">—</span>
                                 ) : activeTab === "buyer" ? (
                                   isReviewable(item.status) ? (
-                                  <div className="flex items-center gap-2">
-                                    <button title="Approve request" onClick={() => { setReviewReason(""); setReviewTarget({ item, action: "approve" }); }}
-                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all duration-150">
-                                      Approve
-                                    </button>
-                                    <button title="Reject request" onClick={() => { setReviewReason(""); setReviewTarget({ item, action: "reject" }); }}
-                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">
-                                      Reject
-                                    </button>
-                                  </div>
+                                  // Buyer approval goes through the detail page so every document is viewed and verified first.
+                                  <button title="Review documents and decide" onClick={() => handleRowClick(item)}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#4B0082] border border-violet-200 bg-violet-50 hover:bg-[#4B0082] hover:text-white hover:border-[#4B0082] transition-all duration-150">
+                                    Review
+                                  </button>
                                   ) : <span className="text-xs text-gray-400">—</span>
                                 ) : (
                                   <button title="Delete request" onClick={() => setDeleteTarget(item)}
