@@ -9,7 +9,7 @@ import BuyerDetails from "@/app/components/BuyerDetails";
 import LabDetails from "@/app/components/LabDetails";
 import LabProfileUpdateDetails from "@/app/components/LabProfileUpdateDetails";
 import { sellerClient } from "@/app/lib/axios";
-import { API_BASE_URL } from "@/app/lib/config";
+import FilePreview, { useFileBlob } from "@/app/components/FilePreview";
 
 // ─── Constants ────────────────────────────────────────────────
 const APPROVED_BY = "admin@example.com";
@@ -645,11 +645,13 @@ export default function RequestDetails() {
   const hasAnyRejected = useMemo(() => allViewed && Object.values(activeStates).some(v => v.verified === false), [activeStates, allViewed]);
 
   // Documents are streamed by the API, so the environment-specific storage URL saved in the DB is never used by the browser.
-  const fileSrc = (url: string) => {
-    const kind = isPendingUpdate ? "pending" : "registrations";
-    const id   = isPendingUpdate ? pendingSellerId : sellerId;
-    return `${API_BASE_URL}/admin/seller-requests/${kind}/${id}/file?url=${encodeURIComponent(url)}`;
-  };
+  // The API sends X-Frame-Options: DENY, so the file is fetched and shown from a local blob copy (see FilePreview).
+  const fileKind = isPendingUpdate ? "pending" : "registrations";
+  const fileId   = isPendingUpdate ? pendingSellerId : sellerId;
+  const blob = useFileBlob(
+    modalOpen && currentFile?.url && fileId ? `/admin/seller-requests/${fileKind}/${fileId}/file` : null,
+    currentFile?.url ? { url: currentFile.url } : undefined,
+  );
 
   // ── Helpers for diff ──
   const diff = useCallback((oldVal: string | null | undefined, newVal: string | null | undefined) => {
@@ -1338,12 +1340,7 @@ export default function RequestDetails() {
               </div>
             </div>
             <div className="flex-1 overflow-auto p-6 bg-gray-50 flex items-center justify-center min-h-[300px]">
-              {isPdfUrl(currentFile.url) ? (
-                <iframe src={fileSrc(currentFile.url)} title={currentFile.label} className="w-full h-[60vh] rounded-lg border border-gray-200 shadow" />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={fileSrc(currentFile.url)} alt={currentFile.label} className="max-w-full max-h-[60vh] object-contain rounded-lg shadow" />
-              )}
+              <FilePreview file={blob} label={currentFile.label} />
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
               <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">

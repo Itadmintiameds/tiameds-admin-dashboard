@@ -16,7 +16,8 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
 import TopHeader from "@/app/components/TopHeader";
 import { sellerClient } from "@/app/lib/axios";
-import { API_BASE_URL, REVIEWER } from "@/app/lib/config";
+import { REVIEWER } from "@/app/lib/config";
+import FilePreview, { useFileBlob } from "@/app/components/FilePreview";
 
 type BuyerDoc = {
   documentId?: number;
@@ -52,9 +53,8 @@ type BuyerDetail = {
 type DocState = { viewed: boolean; verified: boolean | null };
 
 const docId = (d: BuyerDoc) => d.documentId ?? d.tempBuyerDocumentId;
-const isPdf = (u: string) => /\.pdf($|\?)/i.test(u);
 // Documents are streamed by the API itself, so the (environment-specific) storage URL saved in the DB is never used by the browser.
-const fileSrc = (buyerId: string | number, d: BuyerDoc) => `${API_BASE_URL}/admin/buyer-requests/${buyerId}/documents/${docId(d)}/file`;
+const filePath = (buyerId: string | number, d: BuyerDoc) => `/admin/buyer-requests/${buyerId}/documents/${docId(d)}/file`;
 const fmt = (s?: string) => (s ? s.split("T")[0] : "—");
 const val = (s?: string | null) => (s && String(s).trim() ? s : "—");
 const reviewable = (status: string) => ["OPEN", "RESUBMITTED"].includes(status?.toUpperCase());
@@ -109,6 +109,8 @@ export default function BuyerDetails({ requestId, buyerId }: { requestId: string
   const [commentError, setCommentError] = useState(false);
   const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const blob = useFileBlob(current && docId(current) != null ? filePath(buyerId, current) : null);
 
   const showToast = useCallback((message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -368,19 +370,14 @@ export default function BuyerDetails({ requestId, buyerId }: { requestId: string
                 <div className="flex items-center gap-3">
                   {curState?.verified === true && <span className="text-xs font-semibold text-green-700">✔ Verified</span>}
                   {curState?.verified === false && <span className="text-xs font-semibold text-red-700">✖ Rejected</span>}
-                  {current.documentFileUrl && (
-                    <a href={fileSrc(buyerId, current)} target="_blank" rel="noopener noreferrer" className="text-xs text-[#4B0082] hover:underline">Open in new tab</a>
+                  {blob.url && (
+                    <a href={blob.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#4B0082] hover:underline">Open in new tab</a>
                   )}
                   <button onClick={() => setCurrent(null)} aria-label="Close" className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
                 </div>
               </div>
               <div className="flex-1 overflow-auto p-6 bg-gray-50 flex items-center justify-center min-h-[300px]">
-                {isPdf(current.documentFileUrl ?? "") ? (
-                  <iframe src={fileSrc(buyerId, current)} title="Document" className="w-full h-[60vh] rounded-lg border border-gray-200 shadow" />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={fileSrc(buyerId, current)} alt="Document" className="max-w-full max-h-[60vh] object-contain rounded-lg shadow" />
-                )}
+                <FilePreview file={blob} label={current.documentTypeName || "Document"} />
               </div>
               <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
                 <button onClick={() => setCurrent(null)} className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 font-medium text-sm">
