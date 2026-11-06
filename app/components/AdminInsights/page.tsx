@@ -169,7 +169,7 @@ export default function AdminInsights() {
       }
     });
 
-    sellerClient.get("/temp-sellers")
+    sellerClient.get("/admin/seller-requests")
       .then(r => {
         const json = r.data;
         if (cancelled) return;

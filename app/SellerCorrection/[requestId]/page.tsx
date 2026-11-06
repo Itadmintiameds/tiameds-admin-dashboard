@@ -17,9 +17,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { API_BASE_URL } from "@/app/lib/config";
 
 // ─── Constants ────────────────────────────────────────────────
-const BASE_URL = "https://api-test-aggreator.tiameds.ai/api/v1";
+const BASE_URL = API_BASE_URL;
 const API_KEY  = "YOUR_API_KEY";
 
 // ─── Types ────────────────────────────────────────────────────

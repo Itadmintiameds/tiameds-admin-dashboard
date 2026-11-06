@@ -7,12 +7,14 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { adminClient, sellerClient, labClient } from "@/app/lib/axios";
 import { DOCUMENT_TYPE_LABEL, LAB_UPDATE_STATUSES, type LabCertificateRequest } from "@/app/components/LabProfileUpdateDetails";
+import { REVIEWER } from "@/app/lib/config";
 
 // ─── Types ────────────────────────────────────────────────────
 type RequestType = "seller" | "buyer" | "lab" | "pharma";
 type SortField   = "requestId" | "name" | "email" | "date" | "status";
 type SortOrder   = "asc" | "desc";
 type Category    = "requests" | "updates" | "migration";
+type ReviewAction = "approve" | "reject";
 type Request     = { id: number | string; requestId: string; name: string; email: string; date: string; status: string };
 
 type PendingProfileUpdate = {
@@ -30,11 +32,12 @@ type PendingProfileUpdate = {
 // ─── Constants ────────────────────────────────────────────────
 const PAGE_SIZE       = 10;
 
+// Paths are relative to each client's base URL (sellerClient → gateway, adminClient → admin backend).
 const DELETE_API: Record<RequestType, (id: number | string) => string> = {
-  seller: (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-sellers/both/${id}`,
-  buyer:  (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-buyers/${id}`,
-  lab:    (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-labs/${id}`,
-  pharma: (id) => `${process.env.NEXT_PUBLIC_ADMIN_API || 'http://localhost:8081/api/v1'}/pharmacy-registration/${id}`,
+  seller: (id) => `/temp-sellers/both/${id}`,
+  buyer:  (id) => `/temp-buyers/${id}`,
+  lab:    (id) => `https://api-test-aggreator.tiameds.ai/api/v1/temp-labs/${id}`, // unchanged from remote test: lab delete still hits the gateway directly
+  pharma: (id) => `/pharmacy-registration/${id}`,
 };
 
 const STATUS_MAP: Record<string, string> = {
@@ -72,13 +75,6 @@ const COLUMNS: { field: SortField; label: string }[] = [
   { field: "status",    label: "Status"          },
 ];
 
-const DEMO_BUYERS: Request[] = [
-  { id: 11, requestId: "BUY-2001", name: "ABC Buyers",  email: "abc@buyers.com", date: "2026-01-21", status: "Open"               },
-  { id: 12, requestId: "BUY-2002", name: "XYZ Buyers",  email: "xyz@buyers.com", date: "2025-11-08", status: "In Progress"        },
-  { id: 13, requestId: "BUY-2003", name: "JKL Buyers",  email: "jkl@buyers.com", date: "2025-12-12", status: "Closed"             },
-  { id: 14, requestId: "BUY-2004", name: "MNO Buyers",  email: "mno@buyers.com", date: "2025-10-05", status: "Rejected"           },
-  { id: 15, requestId: "BUY-2005", name: "PQR Buyers",  email: "pqr@buyers.com", date: "2026-02-01", status: "Corrections Needed" },
-];
 const LAB_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 const LAB_UPDATE_STATUS_STYLE: Record<string, { label: string; badge: string; dot: string }> = {
   PENDING:  { label: "Pending Review", badge: "bg-yellow-50 text-yellow-700 ring-yellow-200", dot: "bg-yellow-500" },
@@ -88,6 +84,9 @@ const LAB_UPDATE_STATUS_STYLE: Record<string, { label: string; badge: string; do
 
 // ─── Helpers ──────────────────────────────────────────────────
 const normalizeStatus = (raw: string) => STATUS_MAP[raw?.toUpperCase()] ?? raw;
+
+// Only registrations waiting on the admin can be approved/rejected (backend: OPEN or RESUBMITTED).
+const isReviewable = (status: string) => status === "Open" || status === "Resubmitted";
 
 const formatDate = (s: string): string => {
   if (!s || s === "—") return "—";
@@ -233,6 +232,43 @@ const DeleteModal = ({ item, tabLabel, onConfirm, onCancel, isDeleting }: Delete
   );
 };
 
+// ─── Review Modal ─────────────────────────────────────────────
+type ReviewModalProps = {
+  target: { item: Request; action: ReviewAction } | null; tabLabel: string;
+  reason: string; onReasonChange: (v: string) => void;
+  onConfirm: () => void; onCancel: () => void; isSubmitting: boolean;
+};
+const ReviewModal = ({ target, tabLabel, reason, onReasonChange, onConfirm, onCancel, isSubmitting }: ReviewModalProps) => {
+  if (!target) return null;
+  const isReject = target.action === "reject";
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={!isSubmitting ? onCancel : undefined} />
+      <div className="relative bg-white rounded-lg shadow-xl w-[420px] p-6">
+        <h3 className="text-lg font-semibold text-center text-gray-900 mb-2">
+          {isReject ? "Reject" : "Approve"} {tabLabel} Request
+        </h3>
+        <p className="text-sm font-semibold text-center text-[#4B0082] mb-4">{target.item.requestId} — {target.item.name}</p>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          {isReject ? "Rejection reason (required)" : "Comments (optional)"}
+        </label>
+        <textarea value={reason} onChange={e => onReasonChange(e.target.value)} rows={3} disabled={isSubmitting}
+          className="w-full mb-5 px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#4B0082]" />
+        <div className="flex gap-3">
+          <button onClick={onCancel} disabled={isSubmitting}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button onClick={onConfirm} disabled={isSubmitting}
+            className={`flex-1 px-4 py-2 text-white rounded-md text-sm font-medium transition-colors disabled:opacity-50 ${isReject ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>
+            {isSubmitting ? "Submitting..." : isReject ? "Reject" : "Approve"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Shared Classes ───────────────────────────────────────────
 const NAV_BTN = "px-2.5 py-1.5 rounded-lg text-xs font-medium border border-gray-200 text-gray-500 hover:bg-[#f0ebff] hover:border-[#4B0082] hover:text-[#4B0082] disabled:opacity-40 disabled:cursor-not-allowed transition-all";
 
@@ -267,7 +303,9 @@ export default function AdminDashboard() {
   const [loadingPharmacies, setLoadingPharmacies] = useState(false);
   const [pharmaError,       setPharmaError]       = useState<string | null>(null);
 
-  const [buyers] = useState<Request[]>(DEMO_BUYERS);
+  const [buyers,        setBuyers]        = useState<Request[]>([]);
+  const [loadingBuyers, setLoadingBuyers] = useState(false);
+  const [buyerError,    setBuyerError]    = useState<string | null>(null);
 
   const [labs,        setLabs]        = useState<Request[]>([]);
   const [loadingLabs, setLoadingLabs] = useState(false);
@@ -275,6 +313,10 @@ export default function AdminDashboard() {
 
   const [deleteTarget, setDeleteTarget] = useState<Request | null>(null);
   const [isDeleting,   setIsDeleting]   = useState(false);
+
+  const [reviewTarget, setReviewTarget] = useState<{ item: Request; action: ReviewAction } | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [isReviewing,  setIsReviewing]  = useState(false);
 
   // ── Pending profile updates ───────────────────────────────
   const [pendingUpdates,   setPendingUpdates]   = useState<PendingProfileUpdate[]>([]);
@@ -307,7 +349,7 @@ export default function AdminDashboard() {
     let cancelled = false;
     setLoadingSellers(true);
     setSellerError(null);
-    sellerClient.get("/temp-sellers")
+    sellerClient.get("/admin/seller-requests")
       .then(r => r.data)
       .then(json => {
         if (cancelled) return;
@@ -387,6 +429,32 @@ export default function AdminDashboard() {
     return () => { cancelled = true; };
   }, [activeTab, fetchTick]);
 
+  // Fetch buyers
+  useEffect(() => {
+    if (activeTab !== "buyer") return;
+    let cancelled = false;
+    setLoadingBuyers(true);
+    setBuyerError(null);
+    sellerClient.get("/admin/buyer-requests")
+      .then(r => r.data)
+      .then(json => {
+        if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const list: any[] = Array.isArray(json) ? json : Array.isArray(json.data) ? json.data : [];
+        setBuyers(list.map(item => ({
+          id:        item.tempBuyerId,
+          requestId: item.tempBuyerRequestId,
+          name:      item.buyerName ?? "—",
+          email:     item.email ?? "—",
+          date:      item.createdAt ? item.createdAt.split("T")[0] : "—",
+          status:    normalizeStatus(item.status ?? ""),
+        })));
+      })
+      .catch(err => { if (!cancelled) setBuyerError(err.message ?? "Failed to fetch buyers"); })
+      .finally(() => { if (!cancelled) setLoadingBuyers(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, fetchTick]);
+
   // Fetch pending profile updates
   useEffect(() => {
     let cancelled = false;
@@ -452,9 +520,8 @@ export default function AdminDashboard() {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      const url = DELETE_API[activeTab](deleteTarget.id);
-      const path = url.replace(/https?:\/\/[^\/]+\/api\/v1/, '');
-      
+      const path = DELETE_API[activeTab](deleteTarget.id);
+
       if (activeTab === "pharma") {
         await adminClient.delete(path);
         setPharmacies(prev => prev.filter(r => r.id !== deleteTarget.id));
@@ -470,6 +537,38 @@ export default function AdminDashboard() {
       showToast(`Failed to delete: ${errorMsg}`, "error");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleReviewConfirm = async () => {
+    if (!reviewTarget) return;
+    const { item, action } = reviewTarget;
+    const reason = reviewReason.trim();
+    if (action === "reject" && !reason) { showToast("Enter a rejection reason.", "error"); return; }
+    setIsReviewing(true);
+    try {
+      if (activeTab === "seller") {
+        if (action === "approve") {
+          await sellerClient.post(`/admin/seller-requests/${item.id}/approve`, null, { params: { approvedBy: REVIEWER } });
+        } else {
+          await sellerClient.post(`/admin/seller-requests/${item.id}/reject`, { rejectionReason: reason, approvedBy: REVIEWER });
+        }
+        setSellers(prev => prev.filter(r => r.id !== item.id));
+      } else {
+        await sellerClient.post(`/admin/buyer-requests/${item.id}/${action}`, {
+          comments:   reason || `Approved by ${REVIEWER}`,
+          reviewedBy: REVIEWER,
+        });
+        setBuyers(prev => prev.filter(r => r.id !== item.id));
+      }
+      setReviewTarget(null);
+      setReviewReason("");
+      showToast(`${item.requestId} ${action === "approve" ? "approved" : "rejected"}.`, "success");
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || "unknown error";
+      showToast(`Failed to ${action}: ${errorMsg}`, "error");
+    } finally {
+      setIsReviewing(false);
     }
   };
 
@@ -493,12 +592,13 @@ export default function AdminDashboard() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage   = Math.min(currentPage, totalPages);
   const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const isLoading  = (activeTab === "seller" && loadingSellers) || (activeTab === "pharma" && loadingPharmacies) || (activeTab === "lab" && loadingLabs);
-  const hasError   = (activeTab === "seller" && !!sellerError) || (activeTab === "pharma" && !!pharmaError) || (activeTab === "lab" && !!labError);
-  const errorMsg   = activeTab === "seller" ? sellerError : activeTab === "lab" ? labError : pharmaError;
+  const isLoading  = (activeTab === "seller" && loadingSellers) || (activeTab === "buyer" && loadingBuyers) || (activeTab === "pharma" && loadingPharmacies) || (activeTab === "lab" && loadingLabs);
+  const hasError   = (activeTab === "seller" && !!sellerError) || (activeTab === "buyer" && !!buyerError) || (activeTab === "pharma" && !!pharmaError) || (activeTab === "lab" && !!labError);
+  const errorMsg   = activeTab === "seller" ? sellerError : activeTab === "buyer" ? buyerError : activeTab === "lab" ? labError : pharmaError;
 
   // FIX: Regular seller row — uses tempSellerId as sellerId, entityType=seller only
   const handleRowClick = (item: Request) => {
+    if (activeTab === "buyer") return; // no buyer detail page yet
     router.push(`/RequestDetails/${item.requestId}?sellerId=${item.id}&entityType=${activeTab}`);
   };
 
@@ -567,6 +667,11 @@ export default function AdminDashboard() {
       <DeleteModal
         item={deleteTarget} tabLabel={activeTabLabel}
         onConfirm={handleDeleteConfirm} onCancel={() => setDeleteTarget(null)} isDeleting={isDeleting}
+      />
+      <ReviewModal
+        target={reviewTarget} tabLabel={activeTabLabel}
+        reason={reviewReason} onReasonChange={setReviewReason}
+        onConfirm={handleReviewConfirm} onCancel={() => { setReviewTarget(null); setReviewReason(""); }} isSubmitting={isReviewing}
       />
 
         <main className="flex-1 bg-[#F7F2FB] px-5 pb-10 pt-10 overflow-y-auto">
@@ -829,6 +934,27 @@ export default function AdminDashboard() {
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#4B0082] border border-purple-200 bg-purple-50 hover:bg-[#4B0082] hover:text-white hover:border-[#4B0082] transition-all duration-150">
                                     Review
                                   </button>
+                                ) : activeTab === "seller" ? (
+                                  // Seller approval goes through the detail page so every document is viewed and verified first.
+                                  isReviewable(item.status) ? (
+                                    <button title="Review documents and decide" onClick={() => handleRowClick(item)}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#4B0082] border border-violet-200 bg-violet-50 hover:bg-[#4B0082] hover:text-white hover:border-[#4B0082] transition-all duration-150">
+                                      Review
+                                    </button>
+                                  ) : <span className="text-xs text-gray-400">—</span>
+                                ) : activeTab === "buyer" ? (
+                                  isReviewable(item.status) ? (
+                                  <div className="flex items-center gap-2">
+                                    <button title="Approve request" onClick={() => { setReviewReason(""); setReviewTarget({ item, action: "approve" }); }}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-emerald-700 border border-emerald-200 bg-emerald-50 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all duration-150">
+                                      Approve
+                                    </button>
+                                    <button title="Reject request" onClick={() => { setReviewReason(""); setReviewTarget({ item, action: "reject" }); }}
+                                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">
+                                      Reject
+                                    </button>
+                                  </div>
+                                  ) : <span className="text-xs text-gray-400">—</span>
                                 ) : (
                                   <button title="Delete request" onClick={() => setDeleteTarget(item)}
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 border border-red-200 bg-red-50 hover:bg-red-600 hover:text-white hover:border-red-600 transition-all duration-150">

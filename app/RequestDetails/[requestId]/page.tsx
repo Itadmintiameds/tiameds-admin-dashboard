@@ -606,7 +606,7 @@ export default function RequestDetails() {
           }
         }
       } else {
-        const res = await sellerClient.get(`/temp-sellers/${sellerId}`);
+        const res = await sellerClient.get(`/admin/seller-requests/registrations/${sellerId}`);
         const detail = normalizeApiResponse(res.data.data ?? res.data);
         if (cancelled) return;
         const decision = decisionFromStatus(detail.status ?? "");
@@ -666,10 +666,10 @@ export default function RequestDetails() {
     try {
       let res: Response;
       if (fileKey === "gstFile") {
-        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/gst`, { gstVerified: String(verified) });
+        const res = await sellerClient.patch(`/admin/seller-requests/registrations/${sellerId}/verify/gst`, { gstVerified: String(verified) });
         if (verified) showToast("GST verified ✔", "success");
       } else if (fileKey === "chequeFile") {
-        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/bank`, { bankDocumentVerified: String(verified) });
+        const res = await sellerClient.patch(`/admin/seller-requests/registrations/${sellerId}/verify/bank`, { bankDocumentVerified: String(verified) });
         if (verified) showToast("Bank doc verified ✔", "success");
       } else if (fileKey.startsWith("doc_")) {
         // Key format: doc_<documentId>_<idx>
@@ -681,7 +681,7 @@ export default function RequestDetails() {
           throw new Error("Could not resolve document ID — please refresh and try again.");
         }
 
-        const res = await sellerClient.patch(`/temp-sellers/${sellerId}/verify/document`, {
+        const res = await sellerClient.patch(`/admin/seller-requests/registrations/${sellerId}/verify/document`, {
           documentId, documentVerified: String(verified)
         });
         if (verified) showToast("Document verified ✔", "success");

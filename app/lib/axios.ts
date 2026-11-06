@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { API_BASE_URL, ADMIN_API_URL } from './config';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -45,7 +46,7 @@ export const labClient = axios.create({
 });
 
 export const sellerClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_MARKETPLACE_SELLER_API || 'https://api-test-aggreator.tiameds.ai/api/v1',
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
     // Add API key from env if available, else hardcode for now as per current codebase
@@ -55,7 +56,7 @@ export const sellerClient = axios.create({
 });
 
 export const adminClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_ADMIN_API || process.env.NEXT_PUBLIC_AUTH_BACKEND_API || 'http://localhost:8081/api/v1',
+  baseURL: ADMIN_API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -98,5 +99,6 @@ const setupInterceptors = (client: any) => {
 };
 
 setupInterceptors(pharmaClient);
-setupInterceptors(sellerClient);
+// Only the admin backend has a refresh endpoint. sellerClient talks to the marketplace gateway
+// (API-key auth), so a 401 there must surface as an error instead of logging the admin out.
 setupInterceptors(adminClient);
