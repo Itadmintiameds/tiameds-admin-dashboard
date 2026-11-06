@@ -9,6 +9,7 @@ import BuyerDetails from "@/app/components/BuyerDetails";
 import LabDetails from "@/app/components/LabDetails";
 import LabProfileUpdateDetails from "@/app/components/LabProfileUpdateDetails";
 import { sellerClient } from "@/app/lib/axios";
+import { API_BASE_URL } from "@/app/lib/config";
 
 // ─── Constants ────────────────────────────────────────────────
 const APPROVED_BY = "admin@example.com";
@@ -642,6 +643,13 @@ export default function RequestDetails() {
   const allViewed      = useMemo(() => Object.keys(activeStates).length > 0 && Object.values(activeStates).every(v => v.viewed), [activeStates]);
   const canAccept      = useMemo(() => allViewed && Object.values(activeStates).every(v => v.verified === true), [activeStates, allViewed]);
   const hasAnyRejected = useMemo(() => allViewed && Object.values(activeStates).some(v => v.verified === false), [activeStates, allViewed]);
+
+  // Documents are streamed by the API, so the environment-specific storage URL saved in the DB is never used by the browser.
+  const fileSrc = (url: string) => {
+    const kind = isPendingUpdate ? "pending" : "registrations";
+    const id   = isPendingUpdate ? pendingSellerId : sellerId;
+    return `${API_BASE_URL}/admin/seller-requests/${kind}/${id}/file?url=${encodeURIComponent(url)}`;
+  };
 
   // ── Helpers for diff ──
   const diff = useCallback((oldVal: string | null | undefined, newVal: string | null | undefined) => {
@@ -1331,10 +1339,10 @@ export default function RequestDetails() {
             </div>
             <div className="flex-1 overflow-auto p-6 bg-gray-50 flex items-center justify-center min-h-[300px]">
               {isPdfUrl(currentFile.url) ? (
-                <iframe src={currentFile.url} title={currentFile.label} className="w-full h-[60vh] rounded-lg border border-gray-200 shadow" />
+                <iframe src={fileSrc(currentFile.url)} title={currentFile.label} className="w-full h-[60vh] rounded-lg border border-gray-200 shadow" />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={currentFile.url} alt={currentFile.label} className="max-w-full max-h-[60vh] object-contain rounded-lg shadow" />
+                <img src={fileSrc(currentFile.url)} alt={currentFile.label} className="max-w-full max-h-[60vh] object-contain rounded-lg shadow" />
               )}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
