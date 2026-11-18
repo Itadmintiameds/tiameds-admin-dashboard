@@ -5,14 +5,14 @@ import { NextRequest } from "next/server";
 // any Origin that isn't on its allow-list (e.g. localhost on a different port).
 export const dynamic = "force-dynamic";
 
-const TARGET = process.env.API_PROXY_TARGET;
+const TARGET = process.env.PHARMA_AGGREGATOR_API_ENDPOINT;
 
 const DROP_REQUEST = ["origin", "referer", "host", "connection", "content-length", "accept-encoding"];
 const DROP_RESPONSE = ["content-encoding", "content-length", "transfer-encoding", "connection", "set-cookie"];
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   if (!TARGET) {
-    return Response.json({ message: "API_PROXY_TARGET is not set" }, { status: 500 });
+    return Response.json({ message: "PHARMA_AGGREGATOR_API_ENDPOINT is not set" }, { status: 500 });
   }
 
   const { path } = await ctx.params;
