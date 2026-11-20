@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
+import { adminClient } from "@/app/lib/axios";
 
 interface AdminLoginProps {
   onClose: () => void;
@@ -20,16 +21,23 @@ export default function AdminLogin({ onClose }: AdminLoginProps) {
     setError("");
     setIsLoading(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const res = await adminClient.post('/auth/login', {
+        email: username, // API uses email
+        password: password
+      });
 
-    if (username === "admin" && password === "admin123") {
-      setSuccess(true);
-      // Keep modal visible while new page loads — zero flicker
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      router.push("/components/AdminDashboard");
-    } else {
+      if (res.data?.status === 200 || res.status === 200) {
+        setSuccess(true);
+        // Keep modal visible while new page loads — zero flicker
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        router.push("/components/AdminDashboard");
+      } else {
+        throw new Error(res.data?.message || "Invalid credentials");
+      }
+    } catch (err: any) {
       setIsLoading(false);
-      setError("Invalid username or password");
+      setError(err?.response?.data?.message || err.message || "Invalid username or password");
     }
   };
 
